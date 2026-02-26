@@ -3,6 +3,8 @@
  * 1024-d is the ONLY supported dimension.
  */
 
+import { join } from "node:path";
+
 /** Embedding vector dimension — Qwen3-0.6B (local) and Voyage (cloud) both output 1024-d */
 export const EMBEDDING_DIMENSION = 1024;
 
@@ -12,8 +14,22 @@ export const LOCAL_EMBEDDING_MODEL = "onnx-community/Qwen3-Embedding-0.6B-ONNX";
 /** Default local embedding quantization dtype */
 export const LOCAL_EMBEDDING_DTYPE_DEFAULT = "q8";
 
-/** Default local embedding model cache directory (project-local) */
-export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT = "./embedding/models";
+/**
+ * Default local embedding model cache directory.
+ * Absolute path anchored to the monorepo's canonical download target
+ * (apps/edge-core/embedding/models/) so it resolves identically regardless
+ * of process CWD. Apps can override via constructor config.
+ */
+export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT = join(
+	import.meta.dir,
+	"..",
+	"..",
+	"..",
+	"apps",
+	"edge-core",
+	"embedding",
+	"models",
+);
 
 /** Query instruction prefix for retrieval-optimized embedding (Qwen3 prompt_name="query") */
 export const EMBEDDING_QUERY_PREFIX =
