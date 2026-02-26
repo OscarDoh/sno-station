@@ -75,11 +75,22 @@ export class LocalEmbedProvider implements DisposableProvider {
 	private async getExtractor(): Promise<FeatureExtractionPipeline> {
 		if (this._disposed) throw new Error("LocalEmbedProvider has been disposed");
 		if (this._extractor) return this._extractor;
-		if (this._loading) return this._loading;
+		if (this._loading) {
+			const extractor = await this._loading;
+			if (this._disposed) {
+				throw new Error("LocalEmbedProvider has been disposed");
+			}
+			this._extractor = extractor;
+			return extractor;
+		}
 
 		this._loading = this.initPipeline();
 		try {
-			this._extractor = await this._loading;
+			const extractor = await this._loading;
+			if (this._disposed) {
+				throw new Error("LocalEmbedProvider has been disposed");
+			}
+			this._extractor = extractor;
 			return this._extractor;
 		} finally {
 			this._loading = undefined;
@@ -151,8 +162,13 @@ export class LocalEmbedProvider implements DisposableProvider {
 		if (dim === undefined) {
 			throw new Error("Local embedding returned undefined dimension");
 		}
-		// output.data is a TypedArray (Float32Array or similar) — Array.from handles all subtypes
-		const vector = Array.from(output.data as ArrayLike<number>).slice(0, dim);
+		const outputData = output.data as ArrayLike<number> & {
+			subarray?: (start: number, end?: number) => ArrayLike<number>;
+		};
+		const vector =
+			typeof outputData.subarray === "function"
+				? Array.from(outputData.subarray(0, dim))
+				: Array.from(outputData).slice(0, dim);
 		if (vector.length !== EMBEDDING_DIMENSION) {
 			throw new Error(
 				`Expected ${EMBEDDING_DIMENSION}-d embedding, got ${vector.length}-d`,
