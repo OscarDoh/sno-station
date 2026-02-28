@@ -1,4 +1,5 @@
-import { closeSync, existsSync, mkdirSync, openSync, writeSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -76,9 +77,7 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 function isSensitiveKey(key: string): boolean {
-	return SENSITIVE_KEYS.has(
-		key.toLowerCase().replace(/[-_]/g, "").toLowerCase(),
-	);
+	return SENSITIVE_KEYS.has(key.toLowerCase().replace(/[-_]/g, ""));
 }
 
 // ── Serialization ────────────────────────────────────────────────────────────
@@ -199,49 +198,52 @@ function resolveLogFilePath(): string | undefined {
 	return join(root, "logs", UNIFIED_LOG_NAME);
 }
 
-let logFd: number | undefined;
-let logFdResolved = false;
+let logFilePath: string | undefined;
+let logFilePathResolved = false;
 let logFileDisabled = false;
+let logWriteQueue: Promise<void> = Promise.resolve();
 
-function getLogFd(): number | undefined {
+function getLogFilePath(): string | undefined {
 	if (logFileDisabled) return undefined;
-	if (logFdResolved) return logFd;
-	logFdResolved = true;
+	if (logFilePathResolved) return logFilePath;
+	logFilePathResolved = true;
 	const filePath = resolveLogFilePath();
 	if (!filePath) return undefined;
 	try {
 		mkdirSync(dirname(filePath), { recursive: true });
-		logFd = openSync(filePath, "a");
+		logFilePath = filePath;
 	} catch {
 		logFileDisabled = true;
 		process.stderr.write(
-			`${C.yellow}[logger]${C.reset} Failed to open log file: ${filePath}\n`,
+			`${C.yellow}[logger]${C.reset} Failed to prepare log file: ${filePath}\n`,
 		);
 	}
-	return logFd;
+	return logFilePath;
 }
 
-// LH: Write with ANSI colors preserved — `cat logs/dev.log` renders colors in terminal
+function disableFileLogging(error: unknown): void {
+	if (logFileDisabled) return;
+	logFileDisabled = true;
+	logFilePath = undefined;
+	process.stderr.write(
+		`${C.yellow}[logger]${C.reset} File logging permanently disabled: ${error instanceof Error ? error.message : String(error)}\n`,
+	);
+}
+
 function writeToFile(line: string): void {
-	const fd = getLogFd();
-	if (fd === undefined) return;
-	try {
-		writeSync(fd, `${line}\n`);
-	} catch (error: unknown) {
-		// Permanently disable file logging — avoid retry spam on persistent failure
-		logFileDisabled = true;
-		if (logFd !== undefined) {
-			try {
-				closeSync(logFd);
-			} catch {
-				// Best-effort close
-			}
-			logFd = undefined;
-		}
-		process.stderr.write(
-			`${C.yellow}[logger]${C.reset} File logging permanently disabled: ${error instanceof Error ? error.message : String(error)}\n`,
-		);
-	}
+	const filePath = getLogFilePath();
+	if (filePath === undefined) return;
+
+	// Queue async appends so file logging never blocks the event loop and preserves order.
+	logWriteQueue = logWriteQueue
+		.then(() => appendFile(filePath, `${line}\n`))
+		.catch((error: unknown) => {
+			disableFileLogging(error);
+		});
+}
+
+export async function closeLogger(): Promise<void> {
+	await logWriteQueue;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
