@@ -60,19 +60,14 @@ const SENSITIVE_KEYS = new Set([
 	"authorization",
 	"token",
 	"apikey",
-	"api_key",
-	"api-key",
 	"secret",
 	"password",
 	"cookie",
 	"credential",
 	"credentials",
 	"privatekey",
-	"private_key",
 	"accesstoken",
-	"access_token",
 	"refreshtoken",
-	"refresh_token",
 	"bearer",
 ]);
 
@@ -202,6 +197,8 @@ let logFilePath: string | undefined;
 let logFilePathResolved = false;
 let logFileDisabled = false;
 let logWriteQueue: Promise<void> = Promise.resolve();
+let shutdownHooksInstalled = false;
+let flushingOnShutdown = false;
 
 function getLogFilePath(): string | undefined {
 	if (logFileDisabled) return undefined;
@@ -246,9 +243,39 @@ export async function closeLogger(): Promise<void> {
 	await logWriteQueue;
 }
 
+function installShutdownHooks(): void {
+	if (shutdownHooksInstalled) return;
+	shutdownHooksInstalled = true;
+
+	const flush = async (exitCode?: number) => {
+		if (flushingOnShutdown) return;
+		flushingOnShutdown = true;
+		try {
+			await closeLogger();
+		} finally {
+			flushingOnShutdown = false;
+			if (exitCode !== undefined) {
+				process.exit(exitCode);
+			}
+		}
+	};
+
+	process.once("beforeExit", () => {
+		void flush();
+	});
+	process.once("SIGINT", () => {
+		void flush(130);
+	});
+	process.once("SIGTERM", () => {
+		void flush(143);
+	});
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export function createLogger(scope: string) {
+	installShutdownHooks();
+
 	const safeScope = sanitizeMessage(scope);
 
 	const shouldLog = (level: LogLevel) =>
