@@ -11,6 +11,7 @@ import {
 	type FeatureExtractionPipeline,
 	pipeline,
 } from "@huggingface/transformers";
+import { createLogger } from "@sno-edge/utils/logger";
 import {
 	EMBEDDING_DIMENSION,
 	EMBEDDING_QUERY_PREFIX,
@@ -19,6 +20,8 @@ import {
 	LOCAL_EMBEDDING_MODEL,
 } from "./constants";
 import type { DisposableProvider, LocalEmbedConfig } from "./types";
+
+const log = createLogger("embedder:local");
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
@@ -115,6 +118,13 @@ export class LocalEmbedProvider implements DisposableProvider {
 		env.allowRemoteModels = false; // fail-fast, no surprise downloads
 		env.localModelPath = this.cacheDir;
 
+		log.info("loading ONNX model", {
+			model: LOCAL_EMBEDDING_MODEL,
+			cacheDir: this.cacheDir,
+			dtype: this.dtype,
+		});
+		const t0 = performance.now();
+
 		try {
 			const extractor = await pipeline(
 				"feature-extraction",
@@ -131,6 +141,8 @@ export class LocalEmbedProvider implements DisposableProvider {
 				},
 			);
 
+			const durationMs = Math.round(performance.now() - t0);
+			log.info("ONNX model loaded", { durationMs });
 			return extractor;
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -140,8 +152,10 @@ export class LocalEmbedProvider implements DisposableProvider {
 				msg.includes("not found") ||
 				msg.includes("Could not locate file")
 			) {
+				log.error("ONNX model not found", { cacheDir: this.cacheDir });
 				throw new ModelNotFoundError();
 			}
+			log.error("ONNX model init failed", { error: String(error) });
 			throw error;
 		}
 	}
@@ -183,6 +197,7 @@ export class LocalEmbedProvider implements DisposableProvider {
 
 	async embedDocuments(texts: string[]): Promise<number[][]> {
 		if (texts.length === 0) return [];
+		log.debug("batch local embedding", { count: texts.length });
 		// Sequential loop — ONNX session with batch_size=1 forces CPU-bound serial
 		// inference anyway. A loop is explicit and avoids allocating N promise objects.
 		const results: number[][] = new Array(texts.length);
@@ -195,6 +210,7 @@ export class LocalEmbedProvider implements DisposableProvider {
 	// ── Lifecycle helpers ──────────────────────────────────────────────────
 
 	async dispose(): Promise<void> {
+		log.debug("disposing local embedding provider");
 		this._disposed = true;
 
 		// If initialization is in flight, wait for it so we can dispose the result.
