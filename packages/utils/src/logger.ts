@@ -187,6 +187,11 @@ function resolveLogFilePath(): string | undefined {
 	// biome-ignore lint/complexity/useLiteralKeys: bracket notation required by noUncheckedIndexedAccess
 	const explicit = process.env["LOG_FILE"];
 	if (explicit) return explicit;
+	// Skip unified dev.log during test runs. Negative-path tests intentionally emit
+	// warnings/errors, and writing them into the shared dev log makes runtime debugging noisy.
+	// Keep stderr logging enabled so failed tests still surface diagnostics normally.
+	// biome-ignore lint/complexity/useLiteralKeys: bracket notation required by noUncheckedIndexedAccess
+	if (process.env["NODE_ENV"] === "test") return undefined;
 	// Auto-detect repo root for dev mode
 	const root = findRepoRoot();
 	if (!root) return undefined;
