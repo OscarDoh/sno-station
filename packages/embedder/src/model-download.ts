@@ -20,6 +20,7 @@ import {
 	readFileSync,
 	statSync,
 	unlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { totalmem } from "node:os";
@@ -53,6 +54,9 @@ const LOCK_POLL_INTERVAL_MS = 2_000;
 
 /** Stale lock threshold (ms) — locks older than this are assumed abandoned. */
 const LOCK_STALE_MS = 900_000; // 15 min
+
+/** Lock heartbeat interval (ms) while owning the download lock. */
+const LOCK_HEARTBEAT_INTERVAL_MS = 5_000;
 
 type Dtype = "q4" | "q8" | "fp16" | "fp32";
 
@@ -213,6 +217,16 @@ function releaseLock(cacheDir: string): void {
 	}
 }
 
+function heartbeatLock(cacheDir: string): void {
+	const lockPath = join(cacheDir, DOWNLOAD_LOCK_FILE);
+	try {
+		const now = new Date();
+		utimesSync(lockPath, now, now);
+	} catch {
+		// Lock may already be gone; ignore.
+	}
+}
+
 function isLockStale(cacheDir: string): boolean {
 	const lockPath = join(cacheDir, DOWNLOAD_LOCK_FILE);
 	try {
@@ -315,7 +329,12 @@ export async function ensureModelDownloaded(
 
 	// Outer try/finally: ensures lock is ALWAYS released, even if banner/log/env
 	// setup throws (defensive — these are non-throwing in practice).
+	const lockHeartbeat = setInterval(
+		() => heartbeatLock(cacheDir),
+		LOCK_HEARTBEAT_INTERVAL_MS,
+	);
 	try {
+		heartbeatLock(cacheDir);
 		// User-facing banner to stderr
 		const banner = [
 			"",
@@ -422,6 +441,7 @@ export async function ensureModelDownloaded(
 	} finally {
 		// Always release the lock — on success (after marker is written) or
 		// failure (so future processes can retry without waiting for stale lock).
+		clearInterval(lockHeartbeat);
 		releaseLock(cacheDir);
 	}
 }
