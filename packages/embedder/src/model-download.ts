@@ -68,6 +68,32 @@ interface DownloadMarker {
 	completedAt: string;
 }
 
+function parseDownloadMarker(raw: string): DownloadMarker | null {
+	try {
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		const model = parsed["model"];
+		const revision = parsed["revision"];
+		const dtype = parsed["dtype"];
+		const completedAt = parsed["completedAt"];
+		if (
+			typeof model !== "string" ||
+			typeof revision !== "string" ||
+			typeof dtype !== "string" ||
+			typeof completedAt !== "string"
+		) {
+			return null;
+		}
+		return {
+			model,
+			revision,
+			dtype,
+			completedAt,
+		};
+	} catch {
+		return null;
+	}
+}
+
 const DTYPE_SIZES: Record<Dtype, string> = {
 	q4: "~400MB",
 	q8: "~639MB",
@@ -121,30 +147,29 @@ export function isModelCached(
 		// Validate marker metadata against expected revision/dtype when provided.
 		// Prevents silently using stale artifacts after a model or dtype upgrade.
 		if (expectedRevision !== undefined || expectedDtype !== undefined) {
-			try {
-				const raw = readFileSync(markerPath, "utf8");
-				const marker = JSON.parse(raw) as DownloadMarker;
-				if (
-					expectedRevision !== undefined &&
-					marker.revision !== expectedRevision
-				) {
-					log.info("cached model revision mismatch, re-download needed", {
-						cached: String(marker.revision),
-						expected: expectedRevision,
-					});
-					return false;
-				}
-				if (expectedDtype !== undefined && marker.dtype !== expectedDtype) {
-					log.info("cached model dtype mismatch, re-download needed", {
-						cached: String(marker.dtype),
-						expected: expectedDtype,
-					});
-					return false;
-				}
-			} catch {
+			const raw = readFileSync(markerPath, "utf8");
+			const marker = parseDownloadMarker(raw);
+			if (!marker) {
 				// Marker exists but unreadable/unparseable — treat as invalid cache.
 				log.warn("download marker is corrupt, re-download needed", {
 					cacheDir,
+				});
+				return false;
+			}
+			if (
+				expectedRevision !== undefined &&
+				marker.revision !== expectedRevision
+			) {
+				log.info("cached model revision mismatch, re-download needed", {
+					cached: String(marker.revision),
+					expected: expectedRevision,
+				});
+				return false;
+			}
+			if (expectedDtype !== undefined && marker.dtype !== expectedDtype) {
+				log.info("cached model dtype mismatch, re-download needed", {
+					cached: String(marker.dtype),
+					expected: expectedDtype,
 				});
 				return false;
 			}
