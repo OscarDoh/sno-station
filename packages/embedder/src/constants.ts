@@ -11,6 +11,12 @@ export const EMBEDDING_DIMENSION = 1024;
 /** Local ONNX model identifier (Hugging Face hub) */
 export const LOCAL_EMBEDDING_MODEL = "onnx-community/Qwen3-Embedding-0.6B-ONNX";
 
+/**
+ * Pinned HuggingFace revision (commit SHA) for supply-chain integrity.
+ * Update this when intentionally upgrading to a newer model version.
+ */
+export const LOCAL_EMBEDDING_MODEL_REVISION = "72ae6878a1ab06eac891dc58577ed1652379afb5";
+
 /** Default local embedding quantization dtype */
 export const LOCAL_EMBEDDING_DTYPE_DEFAULT = "q8";
 

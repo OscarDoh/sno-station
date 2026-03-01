@@ -18,6 +18,7 @@ import {
 	LOCAL_EMBEDDING_CACHE_DIR_DEFAULT,
 	LOCAL_EMBEDDING_DTYPE_DEFAULT,
 	LOCAL_EMBEDDING_MODEL,
+	LOCAL_EMBEDDING_MODEL_REVISION,
 } from "./constants";
 import type { DisposableProvider, LocalEmbedConfig } from "./types";
 
@@ -130,6 +131,7 @@ export class LocalEmbedProvider implements DisposableProvider {
 				"feature-extraction",
 				LOCAL_EMBEDDING_MODEL,
 				{
+					revision: LOCAL_EMBEDDING_MODEL_REVISION,
 					dtype: this.dtype,
 					device: "cpu",
 					session_options: {
