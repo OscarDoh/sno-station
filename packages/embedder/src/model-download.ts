@@ -70,11 +70,16 @@ interface DownloadMarker {
 
 function parseDownloadMarker(raw: string): DownloadMarker | null {
 	try {
-		const parsed = JSON.parse(raw) as Record<string, unknown>;
-		const model = parsed["model"];
-		const revision = parsed["revision"];
-		const dtype = parsed["dtype"];
-		const completedAt = parsed["completedAt"];
+		const parsed = JSON.parse(raw) as {
+			model?: unknown;
+			revision?: unknown;
+			dtype?: unknown;
+			completedAt?: unknown;
+		};
+		const model = parsed.model;
+		const revision = parsed.revision;
+		const dtype = parsed.dtype;
+		const completedAt = parsed.completedAt;
 		if (
 			typeof model !== "string" ||
 			typeof revision !== "string" ||
