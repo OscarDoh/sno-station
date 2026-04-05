@@ -57,6 +57,14 @@ export class CachedEmbeddingProvider implements DisposableProvider {
 
 		try {
 			return [...(await created)];
+		} catch (error) {
+			// Remove failed promise from inflight before re-throwing so concurrent
+			// waiters that haven't awaited yet fall through to create their own
+			// request instead of receiving a stale rejection.
+			if (this.inflight.get(key) === created) {
+				this.inflight.delete(key);
+			}
+			throw error;
 		} finally {
 			if (this.inflight.get(key) === created) {
 				this.inflight.delete(key);
