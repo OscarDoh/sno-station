@@ -21,6 +21,7 @@ const QUERY_PREFIX = "q:";
 export class CachedEmbeddingProvider implements DisposableProvider {
 	private readonly inner: EmbeddingProvider;
 	private readonly cache: LRUCache<string, number[]>;
+	private readonly inflight = new Map<string, Promise<number[]>>();
 
 	get dimension(): number {
 		return this.inner.dimension;
@@ -34,32 +35,52 @@ export class CachedEmbeddingProvider implements DisposableProvider {
 		});
 	}
 
-	async embed(text: string): Promise<number[]> {
-		const key = `${PASSAGE_PREFIX}${text}`;
+	private async getOrLoad(
+		key: string,
+		load: () => Promise<number[]>,
+	): Promise<number[]> {
 		const cached = this.cache.get(key);
 		if (cached) return [...cached];
 
-		const result = await this.inner.embed(text);
-		this.cache.set(key, [...result]);
-		return result;
+		const pending = this.inflight.get(key);
+		if (pending) {
+			return [...(await pending)];
+		}
+
+		const created = (async () => {
+			const result = await load();
+			const cloned = [...result];
+			this.cache.set(key, cloned);
+			return cloned;
+		})();
+		this.inflight.set(key, created);
+
+		try {
+			return [...(await created)];
+		} finally {
+			if (this.inflight.get(key) === created) {
+				this.inflight.delete(key);
+			}
+		}
+	}
+
+	async embed(text: string): Promise<number[]> {
+		const key = `${PASSAGE_PREFIX}${text}`;
+		return this.getOrLoad(key, async () => this.inner.embed(text));
 	}
 
 	async embedQuery(text: string): Promise<number[]> {
 		const key = `${QUERY_PREFIX}${text}`;
-		const cached = this.cache.get(key);
-		if (cached) return [...cached];
-
-		const result = await this.inner.embedQuery(text);
-		this.cache.set(key, [...result]);
-		return result;
+		return this.getOrLoad(key, async () => this.inner.embedQuery(text));
 	}
 
 	async embedDocuments(texts: string[]): Promise<number[][]> {
 		if (texts.length === 0) return [];
 
-		// Split into cached hits and uncached misses
-		const results = new Array<number[] | undefined>(texts.length);
-		const uncachedIndices: number[] = [];
+		const results = new Array<Promise<number[]> | undefined>(texts.length);
+		const batchKeys: string[] = [];
+		const batchTexts: string[] = [];
+		const batchIndicesByKey = new Map<string, number[]>();
 
 		for (let i = 0; i < texts.length; i++) {
 			const text = texts[i];
@@ -67,48 +88,86 @@ export class CachedEmbeddingProvider implements DisposableProvider {
 			const key = `${PASSAGE_PREFIX}${text}`;
 			const cached = this.cache.get(key);
 			if (cached) {
-				results[i] = [...cached];
-			} else {
-				uncachedIndices.push(i);
+				results[i] = Promise.resolve([...cached]);
+				continue;
 			}
+
+			const pending = this.inflight.get(key);
+			if (pending) {
+				results[i] = pending.then((embedding) => [...embedding]);
+				continue;
+			}
+
+			const existingBatch = batchIndicesByKey.get(key);
+			if (existingBatch) {
+				existingBatch.push(i);
+				continue;
+			}
+
+			batchKeys.push(key);
+			batchTexts.push(text);
+			batchIndicesByKey.set(key, [i]);
 		}
 
-		// Batch-embed uncached texts
-		if (uncachedIndices.length > 0) {
-			const uncachedTexts = uncachedIndices.map((i) => texts[i] as string);
-			const freshEmbeddings = await this.inner.embedDocuments(uncachedTexts);
+		if (batchTexts.length > 0) {
+			const batchPromises = new Map<string, Promise<number[]>>();
+			const freshEmbeddingsPromise = this.inner
+				.embedDocuments(batchTexts)
+				.then((freshEmbeddings) => {
+					if (freshEmbeddings.length !== batchTexts.length) {
+						throw new Error(
+							`inner.embedDocuments returned ${freshEmbeddings.length} results ` +
+								`for ${batchTexts.length} inputs`,
+						);
+					}
+					return freshEmbeddings.map((embedding) => [...embedding]);
+				});
 
-			if (freshEmbeddings.length !== uncachedIndices.length) {
-				throw new Error(
-					`inner.embedDocuments returned ${freshEmbeddings.length} results ` +
-						`for ${uncachedIndices.length} inputs`,
-				);
+			for (let j = 0; j < batchKeys.length; j++) {
+				const key = batchKeys[j];
+				if (key === undefined) continue;
+				const indices = batchIndicesByKey.get(key);
+				if (indices === undefined) continue;
+
+				const keyPromise = freshEmbeddingsPromise.then((freshEmbeddings) => {
+					const embedding = freshEmbeddings[j];
+					if (embedding === undefined) {
+						throw new Error(`Missing fresh embedding at batch index ${j}`);
+					}
+					this.cache.set(key, embedding);
+					return embedding;
+				});
+				batchPromises.set(key, keyPromise);
+				this.inflight.set(key, keyPromise);
+				for (const idx of indices) {
+					results[idx] = keyPromise.then((embedding) => [...embedding]);
+				}
 			}
 
-			for (let j = 0; j < uncachedIndices.length; j++) {
-				const idx = uncachedIndices[j];
-				const embedding = freshEmbeddings[j];
-				const text = texts[idx as number];
-				if (idx !== undefined && embedding !== undefined) {
-					results[idx] = embedding;
-					if (text !== undefined) {
-						this.cache.set(`${PASSAGE_PREFIX}${text}`, [...embedding]);
+			try {
+				await freshEmbeddingsPromise;
+			} finally {
+				for (const [key, keyPromise] of batchPromises) {
+					if (this.inflight.get(key) === keyPromise) {
+						this.inflight.delete(key);
 					}
 				}
 			}
 		}
 
-		// Validate all slots are filled — fail fast if inner provider misbehaved
-		for (let i = 0; i < results.length; i++) {
-			if (results[i] === undefined) {
-				throw new Error(`Missing embedding at index ${i}`);
-			}
-		}
-		return results as number[][];
+		return Promise.all(
+			results.map((result, index) => {
+				if (result === undefined) {
+					throw new Error(`Missing embedding at index ${index}`);
+				}
+				return result;
+			}),
+		);
 	}
 
 	async dispose(): Promise<void> {
 		this.cache.clear();
+		this.inflight.clear();
 		if ("dispose" in this.inner && typeof this.inner.dispose === "function") {
 			await (this.inner as DisposableProvider).dispose();
 		}
@@ -117,6 +176,7 @@ export class CachedEmbeddingProvider implements DisposableProvider {
 	/** Clear the cache without disposing the inner provider */
 	clear(): void {
 		this.cache.clear();
+		this.inflight.clear();
 	}
 
 	/** Current cache size */
