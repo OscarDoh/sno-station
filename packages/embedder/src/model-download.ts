@@ -2,8 +2,8 @@
  * model-download.ts — Shared ONNX model download utility.
  *
  * Used by:
- *   - apps/edge-core/scripts/model-pull.ts (CLI)
- *   - apps/edge-core/src/server.ts (auto-download on startup)
+ *   - apps/storix-core/scripts/model-pull.ts (CLI)
+ *   - apps/storix-core/src/server.ts (auto-download on startup)
  *
  * Idempotent: skips download when a .download-complete marker and .onnx files
  * exist in cacheDir. Interrupted downloads (no marker) trigger re-download.
@@ -26,7 +26,7 @@ import {
 import { totalmem } from "node:os";
 import { join } from "node:path";
 import { env, pipeline } from "@huggingface/transformers";
-import { createLogger } from "@sno-edge/utils/logger";
+import { createLogger } from "@nodix/utils/logger";
 import {
 	LOCAL_EMBEDDING_CACHE_DIR_DEFAULT,
 	LOCAL_EMBEDDING_DTYPE_DEFAULT,

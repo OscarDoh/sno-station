@@ -1,8 +1,8 @@
 /**
  * Local ONNX embedding provider — Qwen3-Embedding-0.6B-ONNX, 1024-d vectors.
  *
- * Extracted from apps/edge-core/src/utils/local-embedding.ts.
- * Decoupled from edge-core config — accepts params via constructor.
+ * Extracted from apps/storix-core/src/utils/local-embedding.ts.
+ * Decoupled from storix-core config — accepts params via constructor.
  */
 
 import { resolve } from "node:path";
@@ -11,7 +11,7 @@ import {
 	type FeatureExtractionPipeline,
 	pipeline,
 } from "@huggingface/transformers";
-import { createLogger } from "@sno-edge/utils/logger";
+import { createLogger } from "@nodix/utils/logger";
 import {
 	EMBEDDING_DIMENSION,
 	EMBEDDING_QUERY_PREFIX,

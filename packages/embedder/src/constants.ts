@@ -24,7 +24,7 @@ export const LOCAL_EMBEDDING_DTYPE_DEFAULT = "q8";
 /**
  * Default local embedding model cache directory.
  * Absolute path anchored to the monorepo's canonical download target
- * (apps/edge-core/embedding/models/) so it resolves identically regardless
+ * (apps/storix-core/embedding/models/) so it resolves identically regardless
  * of process CWD. Apps can override via constructor config.
  */
 export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT = join(
@@ -33,7 +33,7 @@ export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT = join(
 	"..",
 	"..",
 	"apps",
-	"edge-core",
+	"storix-core",
 	"embedding",
 	"models",
 );

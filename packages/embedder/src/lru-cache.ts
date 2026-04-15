@@ -2,7 +2,7 @@
  * LRU-cached embedding provider wrapper.
  *
  * Wraps any EmbeddingProvider with an LRU cache (TTL + max-size eviction).
- * Extracted from edge-claw-agent-plugin's Embedder cache pattern,
+ * Extracted from claw-storix-plugin's Embedder cache pattern,
  * upgraded to use the `lru-cache` package instead of a hand-rolled Map.
  */
 
