@@ -3,7 +3,10 @@
  * 1024-d is the ONLY supported dimension.
  */
 
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const CONSTANTS_DIR = dirname(fileURLToPath(import.meta.url));
 
 /** Embedding vector dimension — Qwen3-0.6B (local) and Voyage (cloud) both output 1024-d */
 export const EMBEDDING_DIMENSION = 1024;
@@ -28,7 +31,7 @@ export const LOCAL_EMBEDDING_DTYPE_DEFAULT = "q8";
  * of process CWD. Apps can override via constructor config.
  */
 export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT = join(
-	import.meta.dir,
+	CONSTANTS_DIR,
 	"..",
 	"..",
 	"..",
