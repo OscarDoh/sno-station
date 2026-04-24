@@ -46,6 +46,13 @@ export interface CloudEmbedConfig {
 	queryPrefix?: string;
 	headers?: Record<string, string>;
 	maxConcurrency?: number;
+	/**
+	 * Output dimension for the embedding. When set, the provider sends this
+	 * value in the OpenAI `dimensions` parameter (Matryoshka truncation) and
+	 * validates the returned vector against it. Defaults to `EMBEDDING_DIMENSION`
+	 * (1024) when omitted so existing Voyage callers keep their shape.
+	 */
+	dimensions?: number;
 }
 
 /** Config for the LRU cache wrapper */
