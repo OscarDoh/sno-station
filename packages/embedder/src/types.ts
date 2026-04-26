@@ -31,11 +31,41 @@ export interface EmbeddingOptions {
 	tier?: EmbeddingTier;
 }
 
+/** Pooling strategy for the local ONNX feature-extraction pipeline. */
+export type LocalEmbedPooling = "last_token" | "mean" | "cls";
+
 /** Config for the local ONNX provider */
 export interface LocalEmbedConfig {
 	cacheDir?: string;
 	dtype?: "q4" | "q8" | "fp16" | "fp32";
 	queryPrefix?: string;
+	/**
+	 * Hugging Face model id. Defaults to the bundled Qwen3-0.6B 1024-d model.
+	 * Override to use other ONNX feature-extraction models.
+	 */
+	model?: string;
+	/** Pinned HF revision (commit SHA). Defaults to the 0.6B model's pinned revision. */
+	revision?: string;
+	/**
+	 * Native embedding dimension produced by the model (model's `hidden_size`).
+	 * For Qwen3-0.6B = 1024, Qwen3-4B = 2560. When `outputDim` is smaller, the
+	 * provider Matryoshka-truncates the head and re-L2-normalizes.
+	 */
+	nativeDim?: number;
+	/**
+	 * Output dimension exposed to callers and stored in the vec table. Defaults
+	 * to `nativeDim`. Set < `nativeDim` to enable Matryoshka truncation.
+	 */
+	outputDim?: number;
+	/**
+	 * Pooling strategy. Read from the model's `1_Pooling/config.json` when
+	 * porting a SentenceTransformers model:
+	 *   - Qwen3-Embedding family → `last_token`
+	 *   - pplx-embed (Qwen3-derived w/ mean pooling) → `mean`
+	 *   - BERT-style encoders → `cls`
+	 * Defaults to `last_token` to preserve the bundled Qwen3-0.6B behavior.
+	 */
+	pooling?: LocalEmbedPooling;
 }
 
 /** Config for the cloud (Voyage / OpenAI-compatible) provider */
