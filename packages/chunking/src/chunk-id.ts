@@ -34,9 +34,11 @@ function normalizeContent(text: string): string {
 
 /**
  * Deterministic chunk ID. Reproducible from stable inputs per PRD §7.4.
- * Format: `chk_<16 hex chars>` (64 bits of SHA-256 prefix). 64 bits is enough
- * for ID uniqueness within a single memory's chunk count (max thousands) with
- * negligible collision risk and keeps row keys compact.
+ * Format: `chk_<32 hex chars>` (128 bits of SHA-256 prefix). chunk_id is the
+ * GLOBAL primary key in `claw_chunks` (not per-memory), so birthday-safety
+ * needs to cover the full chunk space, not just per-memory chunk count. 128
+ * bits puts the first-collision expectation at 2^64 chunks (~1.8e19) — the
+ * earlier 64-bit width hit it at 2^32 (~4.3 B chunks).
  */
 export function buildChunkId(input: ChunkIdInput): string {
 	const parsed = ChunkIdInputSchema.parse(input);
@@ -50,5 +52,5 @@ export function buildChunkId(input: ChunkIdInput): string {
 		parsed.chunkingVersion,
 	].join(FIELD_SEP);
 	const hex = createHash("sha256").update(payload).digest("hex");
-	return `chk_${hex.slice(0, 16)}`;
+	return `chk_${hex.slice(0, 32)}`;
 }

@@ -1,7 +1,10 @@
 import type { TokenizerMode } from "./chunk-config";
 
-/** Per PRD §7.1. CJK char range covering CJK Unified Ideographs, Hiragana, Katakana, Hangul Syllables. */
-const CJK_REGEX = /[一-鿿぀-ゟ゠-ヿ가-힯]/g;
+/**
+ * Per PRD §7.1. CJK char ranges covering CJK Unified Ideographs (Basic + Ext A
+ * for classical/rare chars), Hiragana, Katakana, Hangul Syllables.
+ */
+const CJK_REGEX = /[㐀-䶿一-鿿぀-ゟ゠-ヿ가-힯]/g;
 
 /** Per project convention: `DEFAULT_CHARS_PER_TOKEN = 3.0` (claw-storix-plugin/config). */
 const CHARS_PER_TOKEN = 3;
@@ -29,6 +32,14 @@ export function isCjkHeavy(text: string, threshold = 0.3): boolean {
 /**
  * Per PRD §7.1. Deterministic token count.
  *
+ * Additive over CJK and non-CJK char counts: `cjk/CJK_CHARS_PER_TOKEN +
+ * nonCjk/CHARS_PER_TOKEN`. Strictly monotonic on substring extension, which is
+ * what `chunker.forceSplitOffset` binary search requires. The earlier
+ * threshold-flip implementation (`isCjkHeavy ? 1.2 : 3`) was non-monotonic on
+ * mixed-script substrings: extending the substring by one Chinese char could
+ * cross the 30% threshold and discontinuously jump the divisor, which made
+ * binary search converge to suboptimal split points.
+ *
  * Phase 1 only supports `char-approximation`. `mode` is kept on the signature
  * so callers (and `ChunkConfig.tokenizerMode`) carry an explicit, schema-checked
  * value; future modes are added by extending `TOKENIZER_MODES` *and* this switch
@@ -36,6 +47,7 @@ export function isCjkHeavy(text: string, threshold = 0.3): boolean {
  */
 export function countTokens(text: string, _mode: TokenizerMode = "char-approximation"): number {
 	if (text.length === 0) return 0;
-	const divisor = isCjkHeavy(text) ? CJK_CHARS_PER_TOKEN : CHARS_PER_TOKEN;
-	return Math.ceil(text.length / divisor);
+	const cjkCount = (text.match(CJK_REGEX) ?? []).length;
+	const nonCjkCount = text.length - cjkCount;
+	return Math.ceil(cjkCount / CJK_CHARS_PER_TOKEN + nonCjkCount / CHARS_PER_TOKEN);
 }
