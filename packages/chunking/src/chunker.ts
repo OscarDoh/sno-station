@@ -1,0 +1,272 @@
+/**
+ * Per PRD §7.1, §7.2, §7.4. Deterministic structure-aware chunker.
+ *
+ * Greedy linear scan over content-type-specific boundaries. Same input + same
+ * config → byte-identical output. No timestamps, no random IDs — Task 5
+ * implements deterministic ID generation; until then `chunkId` is `""`.
+ */
+
+import {
+	detectCodeBoundaries,
+	detectConversationBoundaries,
+	detectProseBoundaries,
+} from "./boundaries";
+import { type ChunkConfig, ChunkConfigSchema, type TokenizerMode } from "./chunk-config";
+import type { ChunkMetadataDraft } from "./chunk-metadata";
+import { CHUNKING_VERSION } from "./chunking-version";
+import type { ContentType } from "./content-type";
+import { countTokens } from "./tokenize";
+
+/** Per PRD §7.2. Picks the boundary detector for a given content type. */
+function pickDetector(contentType: ContentType): (text: string) => { offsets: number[] } {
+	switch (contentType) {
+		case "conversation":
+			return detectConversationBoundaries;
+		case "prose":
+			return detectProseBoundaries;
+		case "code":
+			return detectCodeBoundaries;
+		default: {
+			const _exhaustive: never = contentType;
+			throw new Error(`Unexpected contentType: ${String(_exhaustive)}`);
+		}
+	}
+}
+
+/** Per PRD §7.1. Approximate char-per-token ratio for the given text+mode. */
+function charsPerToken(text: string, config: ChunkConfig): number {
+	if (text.length === 0) return 3;
+	const tokens = countTokens(text, config.tokenizerMode);
+	if (tokens === 0) return 3;
+	return text.length / tokens;
+}
+
+/** Per PRD §7.2. Find the largest boundary index strictly greater than `start`. */
+function nextBoundaryIndex(boundaries: number[], start: number, fromIdx: number): number {
+	for (let i = fromIdx; i < boundaries.length; i++) {
+		const b = boundaries[i];
+		if (b !== undefined && b > start) return i;
+	}
+	return -1;
+}
+
+/**
+ * Per PRD §7.2. Force-split point inside an oversized span.
+ *
+ * Validates by `countTokens` (not by char-ratio) so mixed-CJK input cannot
+ * exceed `maxTokens`: re-evaluating the divisor per-slice is the only way
+ * to honor the cap when CJK density varies along the text.
+ */
+function forceSplitOffset(
+	text: string,
+	start: number,
+	targetTokens: number,
+	maxTokens: number,
+	tokenizerMode: TokenizerMode,
+): number {
+	// Binary search for the largest end such that countTokens(start..end) <= maxTokens.
+	let lo = start;
+	let hi = text.length;
+	while (lo < hi) {
+		const mid = Math.floor((lo + hi + 1) / 2);
+		if (countTokens(text.slice(start, mid), tokenizerMode) <= maxTokens) {
+			lo = mid;
+		} else {
+			hi = mid - 1;
+		}
+	}
+	const end = lo;
+	// Try to snap back to a whitespace boundary while still >= targetTokens.
+	const minSnapTokens = Math.max(targetTokens, 1);
+	for (let i = end; i > start; i--) {
+		const ch = text[i - 1];
+		if (ch === " " || ch === "\n" || ch === "\t") {
+			const snapped = countTokens(text.slice(start, i), tokenizerMode);
+			if (snapped >= minSnapTokens && snapped <= maxTokens) {
+				return i;
+			}
+		}
+	}
+	return end > start ? end : Math.min(text.length, start + 1);
+}
+
+/** Per PRD §7.2. Find the largest boundary `<= target` and `> floor`. */
+function snapBackToBoundary(boundaries: number[], target: number, floor: number): number {
+	let pick = floor;
+	for (const b of boundaries) {
+		if (b > floor && b <= target) pick = b;
+		if (b > target) break;
+	}
+	return pick;
+}
+
+interface ChunkSpan {
+	startOffset: number;
+	endOffset: number;
+}
+
+interface ExtendStep {
+	end: number;
+	tokens: number;
+	idx: number;
+	stop: boolean;
+}
+
+/** Per PRD §7.2. One step of boundary-walk extension. */
+function extendOnce(
+	text: string,
+	boundaries: number[],
+	start: number,
+	state: { end: number; tokens: number; idx: number },
+	config: ChunkConfig,
+): ExtendStep {
+	const nextIdx = nextBoundaryIndex(boundaries, state.end, state.idx + 1);
+	if (nextIdx < 0) return { end: text.length, tokens: state.tokens, idx: state.idx, stop: true };
+	const candidateEnd = boundaries[nextIdx] ?? text.length;
+	const candidateTokens = countTokens(text.slice(start, candidateEnd), config.tokenizerMode);
+	if (candidateTokens > config.maxTokens) {
+		// Boundary-only walk would leave us below minTokens — force-split forward.
+		if (state.tokens < config.minTokens) {
+			const forced = forceSplitOffset(
+				text,
+				start,
+				config.targetTokens,
+				config.maxTokens,
+				config.tokenizerMode,
+			);
+			return {
+				end: forced > state.end ? forced : state.end,
+				tokens: state.tokens,
+				idx: state.idx,
+				stop: true,
+			};
+		}
+		return { end: state.end, tokens: state.tokens, idx: state.idx, stop: true };
+	}
+	return { end: candidateEnd, tokens: candidateTokens, idx: nextIdx, stop: false };
+}
+
+/** Per PRD §7.2. Choose the next chunk's end offset starting at `start`. */
+function chooseChunkEnd(
+	text: string,
+	boundaries: number[],
+	start: number,
+	config: ChunkConfig,
+): number {
+	const idx0 = nextBoundaryIndex(boundaries, start, 0);
+	if (idx0 < 0) return text.length;
+	let end = boundaries[idx0] ?? text.length;
+	let tokens = countTokens(text.slice(start, end), config.tokenizerMode);
+	let idx = idx0;
+
+	// If first span already exceeds max, force-split.
+	if (tokens > config.maxTokens) {
+		return forceSplitOffset(
+			text,
+			start,
+			config.targetTokens,
+			config.maxTokens,
+			config.tokenizerMode,
+		);
+	}
+
+	while (tokens < config.targetTokens) {
+		const step = extendOnce(text, boundaries, start, { end, tokens, idx }, config);
+		end = step.end;
+		tokens = step.tokens;
+		idx = step.idx;
+		if (step.stop) return end;
+	}
+	return end;
+}
+
+/** Per PRD §7.2. Compute next chunk start with overlap, snapped to a boundary. */
+function nextStartWithOverlap(
+	text: string,
+	boundaries: number[],
+	prevStart: number,
+	end: number,
+	config: ChunkConfig,
+): number {
+	if (end >= text.length) return text.length;
+	const ratio = charsPerToken(text.slice(0, end), config);
+	const overlapChars = Math.floor(config.overlapTokens * ratio);
+	const target = Math.max(0, end - overlapChars);
+	// Floor the snap at `prevStart` so the next chunk cannot restart at or
+	// before the previous chunk's start. Without this guard, sparse boundaries
+	// can snap to a boundary `b <= prevStart`, restarting the next chunk
+	// inside (or before) the previous one and re-emitting most of its content.
+	const snapped = snapBackToBoundary(boundaries, target, prevStart);
+	if (snapped <= prevStart) return end; // No usable boundary; advance with no overlap.
+	// Validate the actual overlap by token count, not by char approximation.
+	// Char-based budget can underestimate overlap when token density varies
+	// (e.g. a low-density prefix followed by CJK-dense overlap region — the
+	// prefix-wide ratio understates tokens-per-char near `end`). If actual
+	// overlap exceeds 2× the configured token budget, advance to `end` with
+	// no overlap rather than silently violate the budget. The next chunk
+	// still starts at a clean boundary because `chooseChunkEnd` walks forward.
+	const overlapTokens = countTokens(text.slice(snapped, end), config.tokenizerMode);
+	if (overlapTokens > config.overlapTokens * 2) return end;
+	return snapped;
+}
+
+/** Per PRD §7.2. Walk boundaries greedily and emit chunk spans. */
+function computeSpans(text: string, boundaries: number[], config: ChunkConfig): ChunkSpan[] {
+	const spans: ChunkSpan[] = [];
+	let start = 0;
+	let guard = 0;
+	while (start < text.length) {
+		if (guard++ > text.length + 1) break; // pathological-input safety net
+		const end = chooseChunkEnd(text, boundaries, start, config);
+		if (end <= start) break;
+		spans.push({ startOffset: start, endOffset: end });
+		if (end >= text.length) break;
+		const nextStart = nextStartWithOverlap(text, boundaries, start, end, config);
+		// Strict forward progress — overlap must not stall the loop.
+		start = nextStart > start ? nextStart : end;
+	}
+	return spans;
+}
+
+/** Per PRD §7.2. Build a `ChunkMetadata` for one span. */
+function buildChunk(
+	text: string,
+	span: ChunkSpan,
+	chunkIndex: number,
+	config: ChunkConfig,
+	memoryId: string,
+): ChunkMetadataDraft {
+	const chunkText = text.slice(span.startOffset, span.endOffset);
+	return {
+		chunkId: "",
+		memoryId,
+		chunkIndex,
+		chunkText,
+		densePayload: "",
+		startOffset: span.startOffset,
+		endOffset: span.endOffset,
+		tokenCount: countTokens(chunkText, config.tokenizerMode),
+		contentType: config.contentType,
+		chunkingVersion: CHUNKING_VERSION,
+	};
+}
+
+/** Per PRD §7.1, §7.2, §7.4. Public API: deterministic structure-aware chunker. */
+export function chunk(
+	text: string,
+	config?: Partial<ChunkConfig>,
+	parentMemoryId?: string,
+): ChunkMetadataDraft[] {
+	const cfg = ChunkConfigSchema.parse(config ?? {});
+	if (text.length === 0) return [];
+	const memoryId = parentMemoryId ?? "";
+
+	if (countTokens(text, cfg.tokenizerMode) <= cfg.maxTokens) {
+		return [buildChunk(text, { startOffset: 0, endOffset: text.length }, 0, cfg, memoryId)];
+	}
+
+	const detector = pickDetector(cfg.contentType);
+	const { offsets } = detector(text);
+	const spans = computeSpans(text, offsets, cfg);
+	return spans.map((span, i) => buildChunk(text, span, i, cfg, memoryId));
+}
