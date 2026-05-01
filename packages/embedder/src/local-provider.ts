@@ -34,7 +34,7 @@ export class ModelNotFoundError extends Error {
 	constructor(modelId: string) {
 		super(
 			`Local embedding model "${modelId}" not found in cacheDir. ` +
-				`Download it via Hugging Face CLI or 'bun run model:pull'.`,
+				`Download it via Hugging Face CLI or 'pnpm run model:pull'.`,
 		);
 		this.name = "ModelNotFoundError";
 	}
