@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { ContentType } from "./content-type";
 import { countTokens } from "./tokenize";
 
-export const HEAD_EXTRACT_TOKEN_BUDGET = 64 as const;
+export const HEAD_EXTRACT_TOKEN_BUDGET = 96 as const;
 export const HEAD_EXTRACT_MIN_CONTENT_TOKENS = 8 as const;
 export const HEAD_EXTRACT_OVERLAP_DROP_RATIO = 0.8 as const;
 
@@ -30,12 +30,10 @@ const TURN_LINE_PREFIX_RE = /^(?:\[\S+\] )?[A-Za-z][\w \t]{0,40}: /;
 
 const SENTENCE_SPLIT_RE = /(?<=[.!?])\s+(?=[A-Z])/g;
 
-// Identifies frontmatter-style metadata lines that should be skipped before
-// extracting a prose head. A leading run of these lines (with optional blanks)
-// is dropped so the summary captures real content rather than YAML-style ID
-// fields ("sample_id: ...", "speaker_a: ...") or markdown headers. Without
-// this, dense payloads on structured corpora collapse to a shared metadata
-// prefix and lose per-chunk discrimination.
+// Identifies frontmatter-style metadata lines (markdown headings + key:value).
+// The leading run of these lines is captured verbatim and prepended to the
+// prose head so structured-corpus chunks retain temporal/identity anchors
+// (e.g. `session_date_time:`) that would otherwise live only in the first chunk.
 const MARKDOWN_HEADING_RE = /^#{1,6}\s/;
 const METADATA_KEY_VALUE_RE = /^[A-Za-z][A-Za-z0-9_]{0,40}:\s*(?:\S.*)?$/;
 
@@ -78,8 +76,22 @@ function pickConversationLine(text: string, minContentTokens: number): string | 
 	return undefined;
 }
 
-/** Drop a leading run of markdown headings + key-value metadata lines + blanks. */
-function skipLeadingMetadata(text: string): string {
+interface SplitHead {
+	metadata: string;
+	body: string;
+}
+
+/**
+ * Split text at the first non-(heading|key:value|blank) line. Returns the
+ * leading metadata block (verbatim, trimmed) and the remaining body. Either
+ * side may be empty when the input lacks that part.
+ */
+export function extractMetadataHeader(text: string): string | undefined {
+	const { metadata } = splitLeadingMetadata(text.trim());
+	return metadata.length > 0 ? metadata : undefined;
+}
+
+function splitLeadingMetadata(text: string): SplitHead {
 	const lines = text.split("\n");
 	let i = 0;
 	while (i < lines.length) {
@@ -98,8 +110,13 @@ function skipLeadingMetadata(text: string): string {
 		}
 		break;
 	}
-	if (i === 0) return text;
-	return lines.slice(i).join("\n");
+	const metadata = lines
+		.slice(0, i)
+		.filter((l) => l.trim().length > 0)
+		.join("\n")
+		.trim();
+	const body = lines.slice(i).join("\n");
+	return { metadata, body };
 }
 
 /** Prose/code: accumulate sentences (or lines) up to budget; hard-truncate if even one overflows. */
@@ -139,11 +156,30 @@ export function headExtract(
 		return truncateToBudget(line.trim(), cfg.tokenBudget);
 	}
 
-	const stripped = skipLeadingMetadata(trimmed).trim();
-	if (stripped.length === 0) return undefined;
-	const head = pickProseHead(stripped, cfg.tokenBudget);
-	if (head === undefined || head.length === 0) return undefined;
-	return head;
+	const { metadata, body } = splitLeadingMetadata(trimmed);
+	const bodyTrimmed = body.trim();
+
+	if (metadata.length === 0) {
+		const head = pickProseHead(bodyTrimmed, cfg.tokenBudget);
+		if (head === undefined || head.length === 0) return undefined;
+		return head;
+	}
+
+	// Metadata fits inside the budget — emit `metadata + blank line + prose head`
+	// so every chunk's dense_payload carries the parent's temporal/identity
+	// anchors (PRD §8.1: structured corpora must not lose date headers when a
+	// session is split across chunks).
+	const metadataTokens = countTokens(metadata);
+	if (metadataTokens >= cfg.tokenBudget) {
+		return truncateToBudget(metadata, cfg.tokenBudget);
+	}
+	if (bodyTrimmed.length === 0) return metadata;
+
+	const headBudget = cfg.tokenBudget - metadataTokens - 1; // 1 token reserved for the joining blank line
+	if (headBudget <= 0) return metadata;
+	const head = pickProseHead(bodyTrimmed, headBudget);
+	if (head === undefined || head.length === 0) return metadata;
+	return `${metadata}\n\n${head}`;
 }
 
 /**
