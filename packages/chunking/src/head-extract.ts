@@ -35,7 +35,7 @@ const SENTENCE_SPLIT_RE = /(?<=[.!?])\s+(?=[A-Z])/g;
 // prose head so structured-corpus chunks retain temporal/identity anchors
 // (e.g. `session_date_time:`) that would otherwise live only in the first chunk.
 const MARKDOWN_HEADING_RE = /^#{1,6}\s/;
-const METADATA_KEY_VALUE_RE = /^[A-Za-z][A-Za-z0-9_]{0,40}:\s*(?:\S.*)?$/;
+const METADATA_KEY_VALUE_RE = /^[a-z][a-z0-9_]{0,40}:\s*(?:\S.*)?$/;
 
 function resolveConfig(config: Partial<HeadExtractConfig> | undefined): HeadExtractConfig {
 	if (config === undefined) return DEFAULT_HEAD_EXTRACT_CONFIG;
