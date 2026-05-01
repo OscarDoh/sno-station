@@ -21,7 +21,7 @@ const PARAGRAPH_BREAK_RE = /\n\s*\n/g;
  * Per PRD §7.2 fallback. Locale-aware sentence segmentation when no paragraph
  * breaks exist in a span. Uses `Intl.Segmenter` (ICU-backed, bundled with the
  * runtime, zero install footprint) so CJK punctuation `。！？` and non-spaced
- * scripts (Thai/Lao) segment correctly. Note: Bun's current ICU build splits
+ * scripts (Thai/Lao) segment correctly. Note: some ICU builds split
  * after `Dr. ` like a naive regex would; abbreviation merging is aspirational.
  *
  * Returns boundary offsets — char positions where the next sentence starts.
