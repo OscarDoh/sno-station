@@ -11,7 +11,7 @@ import {
 	type FeatureExtractionPipeline,
 	pipeline,
 } from "@huggingface/transformers";
-import { createLogger } from "@nodix/utils/logger";
+import { createLogger } from "@snoai/utils/logger";
 import {
 	EMBEDDING_DIMENSION,
 	EMBEDDING_QUERY_PREFIX,

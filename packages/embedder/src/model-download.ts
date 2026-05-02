@@ -26,7 +26,7 @@ import {
 import { totalmem } from "node:os";
 import { join } from "node:path";
 import { env, pipeline } from "@huggingface/transformers";
-import { createLogger } from "@nodix/utils/logger";
+import { createLogger } from "@snoai/utils/logger";
 import {
 	LOCAL_EMBEDDING_CACHE_DIR_DEFAULT,
 	LOCAL_EMBEDDING_DTYPE_DEFAULT,
