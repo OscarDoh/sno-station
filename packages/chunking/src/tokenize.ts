@@ -6,12 +6,12 @@ import type { TokenizerMode } from "./chunk-config";
  */
 const CJK_REGEX = /[㐀-䶿一-鿿぀-ゟ゠-ヿ가-힯]/g;
 
-/** Per project convention: `DEFAULT_CHARS_PER_TOKEN = 3.0` (claw-storix-plugin/config). */
+/** Per project convention: `DEFAULT_CHARS_PER_TOKEN = 3.0` (mem-claw/config). */
 const CHARS_PER_TOKEN = 3;
 
 /**
  * CJK divisor 1.2 is intentionally tighter than the project-wide embedder-context
- * divisor `CJK_CHAR_TOKEN_DIVISOR = 2.5` (see apps/claw-storix-plugin/config/index.ts:127).
+ * divisor `CJK_CHAR_TOKEN_DIVISOR = 2.5` (see apps/mem-claw/config/index.ts:127).
  *
  * Rationale: the embedder layer caps at 8192 tokens, so its conservative divisor
  * favors fewer-but-larger chunks. The chunker layer caps at maxTokens=448, where
