@@ -1,10 +1,6 @@
 /**
  * model-download.ts — Shared ONNX model download utility.
  *
- * Used by:
- *   - apps/storix-core/scripts/model-pull.ts (CLI)
- *   - apps/storix-core/src/server.ts (auto-download on startup)
- *
  * Idempotent: skips download when a .download-complete marker and .onnx files
  * exist in cacheDir. Interrupted downloads (no marker) trigger re-download.
  * User-facing progress goes to stderr (not stdout) so it doesn't interfere
@@ -274,8 +270,17 @@ function sleep(ms: number): Promise<void> {
 /**
  * Wait for an existing download lock to be released (another process finishing).
  * If the lock is stale (abandoned), break it and return so the caller can retry.
+ *
+ * `expectedRevision` / `expectedDtype` are forwarded to `isModelCached` so a
+ * concurrent revision/dtype upgrade is not satisfied by a stale matching-shape
+ * cache from the previous version. Without them, two processes upgrading the
+ * same cacheDir can both return "finished" on the old artifacts.
  */
-async function waitForLock(cacheDir: string): Promise<void> {
+async function waitForLock(
+	cacheDir: string,
+	expectedRevision?: string,
+	expectedDtype?: string,
+): Promise<void> {
 	const lockPath = join(cacheDir, DOWNLOAD_LOCK_FILE);
 	const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
 
@@ -288,7 +293,7 @@ async function waitForLock(cacheDir: string): Promise<void> {
 		// Lock released?
 		if (!existsSync(lockPath)) return;
 		// Download finished while we waited?
-		if (isModelCached(cacheDir)) return;
+		if (isModelCached(cacheDir, expectedRevision, expectedDtype)) return;
 		// Stale lock from a crashed process?
 		if (isLockStale(cacheDir)) {
 			log.warn("breaking stale download lock", { cacheDir });
@@ -334,7 +339,7 @@ export async function ensureModelDownloaded(
 	// Cross-process serialization: if another process is already downloading,
 	// wait for it instead of racing to write the same files.
 	if (!tryAcquireLock(cacheDir)) {
-		await waitForLock(cacheDir);
+		await waitForLock(cacheDir, LOCAL_EMBEDDING_MODEL_REVISION, dtype);
 		// Re-check: the other process may have completed the download.
 		if (isModelCached(cacheDir, LOCAL_EMBEDDING_MODEL_REVISION, dtype)) {
 			const sizeMB = getDirSizeMB(cacheDir);

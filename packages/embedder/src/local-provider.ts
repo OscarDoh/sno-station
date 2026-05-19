@@ -1,8 +1,7 @@
 /**
  * Local ONNX embedding provider — Qwen3-Embedding-0.6B-ONNX, 1024-d vectors.
  *
- * Extracted from apps/storix-core/src/utils/local-embedding.ts.
- * Decoupled from storix-core config — accepts params via constructor.
+ * Self-contained: all params via constructor; no app-level config dependency.
  */
 
 import { resolve } from "node:path";
@@ -138,10 +137,21 @@ export class LocalEmbedProvider implements DisposableProvider {
 		}
 		LocalEmbedProvider.configuredCacheDir = this.cacheDir;
 
-		// Environment hardening -- set BEFORE pipeline creation
+		// Environment hardening -- set BEFORE pipeline creation.
+		// Remote downloads from Hugging Face Hub are enabled by default so that
+		// end users get a friction-free first run (no manual model:pull step,
+		// no HF account/token — the canonical model is a public anonymous
+		// download). Dev/CI environments that must fail-fast on a missing
+		// cache can opt out via SNOAI_EMBEDDER_OFFLINE=1. HF_ENDPOINT, when
+		// set, overrides the hub host (useful for region mirrors like
+		// https://hf-mirror.com behind GFW).
 		env.cacheDir = this.cacheDir;
-		env.allowRemoteModels = false; // fail-fast, no surprise downloads
+		env.allowRemoteModels = process.env["SNOAI_EMBEDDER_OFFLINE"] !== "1";
 		env.localModelPath = this.cacheDir;
+		const hfEndpoint = process.env["HF_ENDPOINT"]?.trim();
+		if (hfEndpoint) {
+			env.remoteHost = hfEndpoint.endsWith("/") ? hfEndpoint : `${hfEndpoint}/`;
+		}
 
 		log.info("loading ONNX model", {
 			model: this.modelId,

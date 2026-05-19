@@ -26,18 +26,14 @@ export const LOCAL_EMBEDDING_DTYPE_DEFAULT = "q8";
 
 /**
  * Default local embedding model cache directory.
- * Absolute path anchored to the monorepo's canonical download target
- * (apps/storix-core/embedding/models/) so it resolves identically regardless
- * of process CWD. Apps can override via constructor config.
+ * Absolute path anchored to the embedder package's own `.cache/models/` so it
+ * resolves identically regardless of process CWD. Apps can override via
+ * constructor config.
  */
 export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT = join(
 	CONSTANTS_DIR,
 	"..",
-	"..",
-	"..",
-	"apps",
-	"storix-core",
-	"embedding",
+	".cache",
 	"models",
 );
 
