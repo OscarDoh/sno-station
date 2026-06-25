@@ -27,6 +27,15 @@ import type {
 
 const log = createLogger("embedder:local");
 
+// Process-global singleton for the ONNX pipeline. All LocalEmbedProvider instances
+// share one FeatureExtractionPipeline because (a) @huggingface/transformers env is
+// process-global, (b) the configuredCacheDir check already enforces identical config,
+// and (c) each ONNX session allocates ~1.5 GiB native memory — duplicating it when
+// the host framework re-loads the plugin exhausts RSS on constrained VMs.
+let sharedExtractor: FeatureExtractionPipeline | undefined;
+let sharedLoading: Promise<FeatureExtractionPipeline> | undefined;
+let sharedRefCount = 0;
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 export class ModelNotFoundError extends Error {
@@ -42,8 +51,6 @@ export class ModelNotFoundError extends Error {
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export class LocalEmbedProvider implements DisposableProvider {
-	private _extractor: FeatureExtractionPipeline | undefined;
-	private _loading: Promise<FeatureExtractionPipeline> | undefined;
 	private _disposed = false;
 	private readonly cacheDir: string;
 	private readonly dtype: "q4" | "q8" | "fp16" | "fp32";
@@ -63,6 +70,9 @@ export class LocalEmbedProvider implements DisposableProvider {
 	/** Reset static state — FOR TESTS ONLY. Not safe in production. */
 	static resetStaticState(): void {
 		LocalEmbedProvider.configuredCacheDir = undefined;
+		sharedExtractor = undefined;
+		sharedLoading = undefined;
+		sharedRefCount = 0;
 	}
 
 	/** Output dimension exposed to consumers (after Matryoshka truncation, if any). */
@@ -91,6 +101,7 @@ export class LocalEmbedProvider implements DisposableProvider {
 			);
 		}
 		this.pooling = config?.pooling ?? "last_token";
+		sharedRefCount++;
 	}
 
 	// ── Pipeline lifecycle ─────────────────────────────────────────────────
@@ -101,26 +112,25 @@ export class LocalEmbedProvider implements DisposableProvider {
 	// this must be replaced with a proper mutex.
 	private async getExtractor(): Promise<FeatureExtractionPipeline> {
 		if (this._disposed) throw new Error("LocalEmbedProvider has been disposed");
-		if (this._extractor) return this._extractor;
-		if (this._loading) {
-			const extractor = await this._loading;
+		if (sharedExtractor) return sharedExtractor;
+		if (sharedLoading) {
+			const extractor = await sharedLoading;
 			if (this._disposed) {
 				throw new Error("LocalEmbedProvider has been disposed");
 			}
-			this._extractor = extractor;
 			return extractor;
 		}
 
-		this._loading = this.initPipeline();
+		sharedLoading = this.initPipeline();
 		try {
-			const extractor = await this._loading;
+			const extractor = await sharedLoading;
 			if (this._disposed) {
 				throw new Error("LocalEmbedProvider has been disposed");
 			}
-			this._extractor = extractor;
-			return this._extractor;
+			sharedExtractor = extractor;
+			return extractor;
 		} finally {
-			this._loading = undefined;
+			sharedLoading = undefined;
 		}
 	}
 
@@ -265,21 +275,21 @@ export class LocalEmbedProvider implements DisposableProvider {
 	async dispose(): Promise<void> {
 		log.debug("disposing local embedding provider");
 		this._disposed = true;
+		sharedRefCount = Math.max(0, sharedRefCount - 1);
 
-		// If initialization is in flight, wait for it so we can dispose the result.
-		const pending = this._loading;
+		if (sharedRefCount > 0) return;
+
+		const pending = sharedLoading;
 		if (pending) {
 			const extractor = await pending.catch(() => undefined);
-			// After await, _extractor may have been set by getExtractor().
-			// Dispose via _extractor below to avoid double-dispose.
-			if (extractor && extractor !== this._extractor) {
+			if (extractor && extractor !== sharedExtractor) {
 				await extractor.dispose();
 			}
 		}
 
-		if (this._extractor) {
-			await this._extractor.dispose();
-			this._extractor = undefined;
+		if (sharedExtractor) {
+			await sharedExtractor.dispose();
+			sharedExtractor = undefined;
 		}
 	}
 
