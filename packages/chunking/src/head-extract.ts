@@ -5,8 +5,8 @@
  */
 
 import { z } from "zod";
-import type { ContentType } from "./content-type";
-import { countTokens } from "./tokenize";
+import type { ContentType } from "./content-type.js";
+import { countTokens } from "./tokenize.js";
 
 export const HEAD_EXTRACT_TOKEN_BUDGET = 96 as const;
 export const HEAD_EXTRACT_MIN_CONTENT_TOKENS = 8 as const;

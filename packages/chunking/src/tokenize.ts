@@ -1,4 +1,4 @@
-import type { TokenizerMode } from "./chunk-config";
+import type { TokenizerMode } from "./chunk-config.js";
 
 /**
  * Per PRD §7.1. CJK char ranges covering CJK Unified Ideographs (Basic + Ext A
@@ -21,12 +21,17 @@ const CHARS_PER_TOKEN = 3;
  */
 const CJK_CHARS_PER_TOKEN = 1.2;
 
+/** Ratio of CJK characters to total non-whitespace characters. */
+export function getCjkRatio(text: string): number {
+	const nonWs = text.replace(/\s+/g, "");
+	if (nonWs.length === 0) return 0;
+	const cjkCount = (text.match(CJK_REGEX) ?? []).length;
+	return cjkCount / nonWs.length;
+}
+
 /** Per PRD §7.1. Returns true when ≥`threshold` of non-whitespace chars are CJK. */
 export function isCjkHeavy(text: string, threshold = 0.3): boolean {
-	const nonWs = text.replace(/\s+/g, "");
-	if (nonWs.length === 0) return false;
-	const cjkCount = (text.match(CJK_REGEX) ?? []).length;
-	return cjkCount / nonWs.length >= threshold;
+	return getCjkRatio(text) >= threshold;
 }
 
 /**

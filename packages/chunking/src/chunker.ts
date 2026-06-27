@@ -10,12 +10,12 @@ import {
 	detectCodeBoundaries,
 	detectConversationBoundaries,
 	detectProseBoundaries,
-} from "./boundaries";
-import { type ChunkConfig, ChunkConfigSchema, type TokenizerMode } from "./chunk-config";
-import type { ChunkMetadataDraft } from "./chunk-metadata";
-import { CHUNKING_VERSION } from "./chunking-version";
-import type { ContentType } from "./content-type";
-import { countTokens } from "./tokenize";
+} from "./boundaries.js";
+import { type ChunkConfig, ChunkConfigSchema, type TokenizerMode } from "./chunk-config.js";
+import type { ChunkMetadataDraft } from "./chunk-metadata.js";
+import { CHUNKING_VERSION } from "./chunking-version.js";
+import type { ContentType } from "./content-type.js";
+import { countTokens } from "./tokenize.js";
 
 /** Per PRD §7.2. Picks the boundary detector for a given content type. */
 function pickDetector(contentType: ContentType): (text: string) => { offsets: number[] } {

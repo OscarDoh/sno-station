@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { CHUNKING_VERSION } from "./chunking-version";
+import { CHUNKING_VERSION } from "./chunking-version.js";
 
 export const ChunkIdInputSchema = z
 	.object({
