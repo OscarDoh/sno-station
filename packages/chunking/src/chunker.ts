@@ -90,6 +90,19 @@ function forceSplitOffset(
 	return end > start ? end : Math.min(text.length, start + 1);
 }
 
+/** Per PRD §7.2. Never return a chunk end that violates maxTokens. */
+function capEndAtMaxTokens(text: string, start: number, end: number, config: ChunkConfig): number {
+	const tokens = countTokens(text.slice(start, end), config.tokenizerMode);
+	if (tokens <= config.maxTokens) return end;
+	return forceSplitOffset(
+		text,
+		start,
+		config.targetTokens,
+		config.maxTokens,
+		config.tokenizerMode,
+	);
+}
+
 /** Per PRD §7.2. Find the largest boundary `<= target` and `> floor`. */
 function snapBackToBoundary(boundaries: number[], target: number, floor: number): number {
 	let pick = floor;
@@ -121,7 +134,15 @@ function extendOnce(
 	config: ChunkConfig,
 ): ExtendStep {
 	const nextIdx = nextBoundaryIndex(boundaries, state.end, state.idx + 1);
-	if (nextIdx < 0) return { end: text.length, tokens: state.tokens, idx: state.idx, stop: true };
+	if (nextIdx < 0) {
+		const end = capEndAtMaxTokens(text, start, text.length, config);
+		return {
+			end,
+			tokens: countTokens(text.slice(start, end), config.tokenizerMode),
+			idx: state.idx,
+			stop: true,
+		};
+	}
 	const candidateEnd = boundaries[nextIdx] ?? text.length;
 	const candidateTokens = countTokens(text.slice(start, candidateEnd), config.tokenizerMode);
 	if (candidateTokens > config.maxTokens) {
@@ -154,7 +175,7 @@ function chooseChunkEnd(
 	config: ChunkConfig,
 ): number {
 	const idx0 = nextBoundaryIndex(boundaries, start, 0);
-	if (idx0 < 0) return text.length;
+	if (idx0 < 0) return capEndAtMaxTokens(text, start, text.length, config);
 	let end = boundaries[idx0] ?? text.length;
 	let tokens = countTokens(text.slice(start, end), config.tokenizerMode);
 	let idx = idx0;
