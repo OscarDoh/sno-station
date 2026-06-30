@@ -7,7 +7,6 @@
  */
 
 import {
-	detectCodeBoundaries,
 	detectConversationBoundaries,
 	detectProseBoundaries,
 } from "./boundaries.js";
@@ -15,6 +14,7 @@ import { type ChunkConfig, ChunkConfigSchema, type TokenizerMode } from "./chunk
 import type { ChunkMetadataDraft } from "./chunk-metadata.js";
 import { CHUNKING_VERSION } from "./chunking-version.js";
 import type { ContentType } from "./content-type.js";
+import { chunkStructured } from "./structured.js";
 import { countTokens } from "./tokenize.js";
 
 /** Per PRD §7.2. Picks the boundary detector for a given content type. */
@@ -23,9 +23,8 @@ function pickDetector(contentType: ContentType): (text: string) => { offsets: nu
 		case "conversation":
 			return detectConversationBoundaries;
 		case "prose":
+		case "structured":
 			return detectProseBoundaries;
-		case "code":
-			return detectCodeBoundaries;
 		default: {
 			const _exhaustive: never = contentType;
 			throw new Error(`Unexpected contentType: ${String(_exhaustive)}`);
@@ -116,6 +115,7 @@ function snapBackToBoundary(boundaries: number[], target: number, floor: number)
 interface ChunkSpan {
 	startOffset: number;
 	endOffset: number;
+	flags?: ["oversized"];
 }
 
 interface ExtendStep {
@@ -132,6 +132,7 @@ function extendOnce(
 	start: number,
 	state: { end: number; tokens: number; idx: number },
 	config: ChunkConfig,
+	respectTurnBoundary: boolean,
 ): ExtendStep {
 	const nextIdx = nextBoundaryIndex(boundaries, state.end, state.idx + 1);
 	if (nextIdx < 0) {
@@ -146,6 +147,21 @@ function extendOnce(
 	const candidateEnd = boundaries[nextIdx] ?? text.length;
 	const candidateTokens = countTokens(text.slice(start, candidateEnd), config.tokenizerMode);
 	if (candidateTokens > config.maxTokens) {
+		// Conversation only (REQ-9): if the NEXT individual turn
+		// (state.end..candidateEnd) is itself oversized on its own, it must
+		// never be force-split into from a prior accumulation — that would cut
+		// inside the oversized turn without ever emitting the `oversized` flag.
+		// Stop at state.end (a clean boundary) so the outer loop's
+		// allowOversizedFirstSpan check owns the next turn whole, on its own,
+		// next iteration. Prose has no such guarantee and must keep the legacy
+		// 0.99.1 force-split-across-the-boundary behavior for byte-identical
+		// output (REQ-13).
+		if (respectTurnBoundary) {
+			const segmentTokens = countTokens(text.slice(state.end, candidateEnd), config.tokenizerMode);
+			if (segmentTokens > config.maxTokens) {
+				return { end: state.end, tokens: state.tokens, idx: state.idx, stop: true };
+			}
+		}
 		// Boundary-only walk would leave us below minTokens — force-split forward.
 		if (state.tokens < config.minTokens) {
 			const forced = forceSplitOffset(
@@ -173,6 +189,7 @@ function chooseChunkEnd(
 	boundaries: number[],
 	start: number,
 	config: ChunkConfig,
+	respectTurnBoundary: boolean,
 ): number {
 	const idx0 = nextBoundaryIndex(boundaries, start, 0);
 	if (idx0 < 0) return capEndAtMaxTokens(text, start, text.length, config);
@@ -192,7 +209,14 @@ function chooseChunkEnd(
 	}
 
 	while (tokens < config.targetTokens) {
-		const step = extendOnce(text, boundaries, start, { end, tokens, idx }, config);
+		const step = extendOnce(
+			text,
+			boundaries,
+			start,
+			{ end, tokens, idx },
+			config,
+			respectTurnBoundary,
+		);
 		end = step.end;
 		tokens = step.tokens;
 		idx = step.idx;
@@ -232,13 +256,34 @@ function nextStartWithOverlap(
 }
 
 /** Per PRD §7.2. Walk boundaries greedily and emit chunk spans. */
-function computeSpans(text: string, boundaries: number[], config: ChunkConfig): ChunkSpan[] {
+function computeSpans(
+	text: string,
+	boundaries: number[],
+	config: ChunkConfig,
+	allowOversizedFirstSpan: boolean,
+): ChunkSpan[] {
 	const spans: ChunkSpan[] = [];
 	let start = 0;
 	let guard = 0;
 	while (start < text.length) {
 		if (guard++ > text.length + 1) break; // pathological-input safety net
-		const end = chooseChunkEnd(text, boundaries, start, config);
+		if (allowOversizedFirstSpan) {
+			const idx0 = nextBoundaryIndex(boundaries, start, 0);
+			const firstBoundaryEnd = idx0 < 0 ? text.length : (boundaries[idx0] ?? text.length);
+			if (
+				firstBoundaryEnd > start &&
+				countTokens(text.slice(start, firstBoundaryEnd), config.tokenizerMode) > config.maxTokens
+			) {
+				spans.push({
+					startOffset: start,
+					endOffset: firstBoundaryEnd,
+					flags: ["oversized"],
+				});
+				start = firstBoundaryEnd;
+				continue;
+			}
+		}
+		const end = chooseChunkEnd(text, boundaries, start, config, allowOversizedFirstSpan);
 		if (end <= start) break;
 		spans.push({ startOffset: start, endOffset: end });
 		if (end >= text.length) break;
@@ -258,7 +303,7 @@ function buildChunk(
 	memoryId: string,
 ): ChunkMetadataDraft {
 	const chunkText = text.slice(span.startOffset, span.endOffset);
-	return {
+	const draft: ChunkMetadataDraft = {
 		chunkId: "",
 		memoryId,
 		chunkIndex,
@@ -270,6 +315,8 @@ function buildChunk(
 		contentType: config.contentType,
 		chunkingVersion: CHUNKING_VERSION,
 	};
+	if (span.flags !== undefined) draft.flags = span.flags;
+	return draft;
 }
 
 /** Per PRD §7.1, §7.2, §7.4. Public API: deterministic structure-aware chunker. */
@@ -282,12 +329,16 @@ export function chunk(
 	if (text.length === 0) return [];
 	const memoryId = parentMemoryId ?? "";
 
+	if (cfg.contentType === "structured") {
+		return chunkStructured(text, cfg, memoryId);
+	}
+
 	if (countTokens(text, cfg.tokenizerMode) <= cfg.maxTokens) {
 		return [buildChunk(text, { startOffset: 0, endOffset: text.length }, 0, cfg, memoryId)];
 	}
 
 	const detector = pickDetector(cfg.contentType);
 	const { offsets } = detector(text);
-	const spans = computeSpans(text, offsets, cfg);
+	const spans = computeSpans(text, offsets, cfg, cfg.contentType === "conversation");
 	return spans.map((span, i) => buildChunk(text, span, i, cfg, memoryId));
 }

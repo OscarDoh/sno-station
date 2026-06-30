@@ -19,7 +19,11 @@ export const HeadExtractConfigSchema = z
 		overlapDropRatio: z.number().min(0).max(1).default(HEAD_EXTRACT_OVERLAP_DROP_RATIO),
 	})
 	.strict()
-	.default({});
+	.default({
+		tokenBudget: HEAD_EXTRACT_TOKEN_BUDGET,
+		minContentTokens: HEAD_EXTRACT_MIN_CONTENT_TOKENS,
+		overlapDropRatio: HEAD_EXTRACT_OVERLAP_DROP_RATIO,
+	});
 
 export type HeadExtractConfig = z.infer<typeof HeadExtractConfigSchema>;
 
