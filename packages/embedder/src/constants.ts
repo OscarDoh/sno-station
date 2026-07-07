@@ -24,6 +24,13 @@ export const LOCAL_EMBEDDING_MODEL_REVISION =
 /** Default local embedding quantization dtype */
 export const LOCAL_EMBEDDING_DTYPE_DEFAULT = "q8";
 
+/** Default ONNX Runtime profile for constrained local agents. */
+export const LOCAL_EMBEDDING_SESSION_OPTIONS_DEFAULT = {
+	graphOptimizationLevel: "extended",
+	enableMemPattern: false,
+	enableCpuMemArena: false,
+} as const;
+
 /**
  * Default local embedding model cache directory.
  * Absolute path anchored to the embedder package's own `.cache/models/` so it

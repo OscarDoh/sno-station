@@ -34,10 +34,38 @@ export interface EmbeddingOptions {
 /** Pooling strategy for the local ONNX feature-extraction pipeline. */
 export type LocalEmbedPooling = "last_token" | "mean" | "cls";
 
+/** ONNX model precision variants supported by Transformers.js. */
+export type LocalEmbedDtype =
+	| "fp32"
+	| "fp16"
+	| "q8"
+	| "q4"
+	| "bnb4"
+	| "q4f16"
+	| "int8"
+	| "uint8";
+
+/** ONNX Runtime graph optimization level for the local provider. */
+export type LocalEmbedGraphOptimizationLevel =
+	| "disabled"
+	| "basic"
+	| "extended"
+	| "all";
+
+/** ONNX Runtime session knobs for local embedding memory control. */
+export interface LocalEmbedSessionOptions {
+	graphOptimizationLevel?: LocalEmbedGraphOptimizationLevel;
+	enableMemPattern?: boolean;
+	enableCpuMemArena?: boolean;
+	executionMode?: "sequential" | "parallel";
+	interOpNumThreads?: number;
+	intraOpNumThreads?: number;
+}
+
 /** Config for the local ONNX provider */
 export interface LocalEmbedConfig {
 	cacheDir?: string;
-	dtype?: "q4" | "q8" | "fp16" | "fp32";
+	dtype?: LocalEmbedDtype;
 	queryPrefix?: string;
 	/**
 	 * Hugging Face model id. Defaults to the bundled Qwen3-0.6B 1024-d model.
@@ -66,6 +94,11 @@ export interface LocalEmbedConfig {
 	 * Defaults to `last_token` to preserve the bundled Qwen3-0.6B behavior.
 	 */
 	pooling?: LocalEmbedPooling;
+	/**
+	 * Optional ONNX Runtime session overrides. Defaults use the low-memory CPU
+	 * profile: graph optimization extended, memory pattern off, CPU arena off.
+	 */
+	sessionOptions?: LocalEmbedSessionOptions;
 }
 
 /** Config for the cloud (Voyage / OpenAI-compatible) provider */
