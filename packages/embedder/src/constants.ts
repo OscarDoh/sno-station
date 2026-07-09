@@ -8,18 +8,19 @@ import { fileURLToPath } from "node:url";
 
 const CONSTANTS_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** Embedding vector dimension — Qwen3-0.6B (local) and Voyage (cloud) both output 1024-d */
+/** Embedding vector dimension — local PPLX and Voyage (cloud) both output 1024-d */
 export const EMBEDDING_DIMENSION = 1024;
 
 /** Local ONNX model identifier (Hugging Face hub) */
-export const LOCAL_EMBEDDING_MODEL = "onnx-community/Qwen3-Embedding-0.6B-ONNX";
+export const LOCAL_EMBEDDING_MODEL =
+	"tss-deposium/pplx-embed-v1-0.6b-onnx-int8-standard";
 
 /**
  * Pinned HuggingFace revision (commit SHA) for supply-chain integrity.
  * Update this when intentionally upgrading to a newer model version.
  */
 export const LOCAL_EMBEDDING_MODEL_REVISION =
-	"72ae6878a1ab06eac891dc58577ed1652379afb5";
+	"a18fdffe7480e6ea5643acb7757142b33838817a";
 
 /** Default local embedding quantization dtype */
 export const LOCAL_EMBEDDING_DTYPE_DEFAULT = "q8";
@@ -44,9 +45,8 @@ export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT = join(
 	"models",
 );
 
-/** Query instruction prefix for retrieval-optimized embedding (Qwen3 prompt_name="query") */
-export const EMBEDDING_QUERY_PREFIX =
-	"Instruct: Given a query, retrieve relevant passages\nQuery: ";
+/** Default query prefix. The bundled PPLX embedder is trained without task prefixes. */
+export const EMBEDDING_QUERY_PREFIX = "";
 
 /** Default cloud embedding model */
 export const CLOUD_EMBEDDING_MODEL_DEFAULT = "voyage-3";

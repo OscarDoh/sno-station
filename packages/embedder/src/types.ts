@@ -68,15 +68,15 @@ export interface LocalEmbedConfig {
 	dtype?: LocalEmbedDtype;
 	queryPrefix?: string;
 	/**
-	 * Hugging Face model id. Defaults to the bundled Qwen3-0.6B 1024-d model.
+	 * Hugging Face model id. Defaults to the bundled PPLX 1024-d INT8 model.
 	 * Override to use other ONNX feature-extraction models.
 	 */
 	model?: string;
-	/** Pinned HF revision (commit SHA). Defaults to the 0.6B model's pinned revision. */
+	/** Pinned HF revision (commit SHA). Defaults only when using the bundled local model. */
 	revision?: string;
 	/**
 	 * Native embedding dimension produced by the model (model's `hidden_size`).
-	 * For Qwen3-0.6B = 1024, Qwen3-4B = 2560. When `outputDim` is smaller, the
+	 * For PPLX 0.6B = 1024, Qwen3-4B = 2560. When `outputDim` is smaller, the
 	 * provider Matryoshka-truncates the head and re-L2-normalizes.
 	 */
 	nativeDim?: number;
@@ -91,7 +91,7 @@ export interface LocalEmbedConfig {
 	 *   - Qwen3-Embedding family → `last_token`
 	 *   - pplx-embed (Qwen3-derived w/ mean pooling) → `mean`
 	 *   - BERT-style encoders → `cls`
-	 * Defaults to `last_token` to preserve the bundled Qwen3-0.6B behavior.
+	 * Defaults to `mean` for the bundled PPLX local model.
 	 */
 	pooling?: LocalEmbedPooling;
 	/**

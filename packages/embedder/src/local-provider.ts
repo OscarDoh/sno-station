@@ -1,5 +1,5 @@
 /**
- * Local ONNX embedding provider — Qwen3-Embedding-0.6B-ONNX, 1024-d vectors.
+ * Local ONNX embedding provider — PPLX embed v1 0.6B INT8, 1024-d vectors.
  *
  * Self-contained: all params via constructor; no app-level config dependency.
  */
@@ -57,7 +57,7 @@ interface LocalPipelineSessionOptions {
 interface LocalPipelineIdentity {
 	cacheDir: string;
 	modelId: string;
-	revision: string;
+	revision: string | undefined;
 	dtype: LocalEmbedDtype;
 	sessionOptions: LocalEmbedSessionOptions;
 }
@@ -137,7 +137,7 @@ export class LocalEmbedProvider implements DisposableProvider {
 	private readonly dtype: LocalEmbedDtype;
 	private readonly queryPrefix: string;
 	private readonly modelId: string;
-	private readonly revision: string;
+	private readonly revision: string | undefined;
 	private readonly nativeDim: number;
 	private readonly outputDim: number;
 	private readonly pooling: LocalEmbedPooling;
@@ -173,8 +173,10 @@ export class LocalEmbedProvider implements DisposableProvider {
 		this.dtype = config?.dtype ?? LOCAL_EMBEDDING_DTYPE_DEFAULT;
 		this.queryPrefix = config?.queryPrefix ?? EMBEDDING_QUERY_PREFIX;
 		this.modelId = config?.model ?? LOCAL_EMBEDDING_MODEL;
-		this.revision = config?.revision ?? LOCAL_EMBEDDING_MODEL_REVISION;
-		// Default native dim assumes the bundled Qwen3-0.6B (1024). Callers using
+		this.revision =
+			config?.revision ??
+			(config?.model === undefined ? LOCAL_EMBEDDING_MODEL_REVISION : undefined);
+		// Default native dim assumes the bundled PPLX 0.6B (1024). Callers using
 		// other models must pass nativeDim explicitly so Matryoshka math is correct.
 		this.nativeDim = config?.nativeDim ?? EMBEDDING_DIMENSION;
 		this.outputDim = config?.outputDim ?? this.nativeDim;
@@ -184,7 +186,7 @@ export class LocalEmbedProvider implements DisposableProvider {
 					`Matryoshka truncation only shrinks dimensions.`,
 			);
 		}
-		this.pooling = config?.pooling ?? "last_token";
+		this.pooling = config?.pooling ?? "mean";
 		this.sessionOptions = config?.sessionOptions ?? {};
 		this.pipelineKey = buildPipelineKey({
 			cacheDir: this.cacheDir,
@@ -290,7 +292,7 @@ export class LocalEmbedProvider implements DisposableProvider {
 		try {
 			const sessionOptions = buildSessionOptions(this.sessionOptions);
 			const extractor = await pipeline("feature-extraction", this.modelId, {
-				revision: this.revision,
+				...(this.revision !== undefined ? { revision: this.revision } : {}),
 				dtype: this.dtype,
 				device: "cpu",
 				session_options: sessionOptions,
