@@ -223,10 +223,10 @@ export class LocalEmbedProvider implements DisposableProvider {
 		sharedLoading = this.initPipeline();
 		try {
 			const extractor = await sharedLoading;
+			sharedExtractor = extractor;
 			if (this._disposed) {
 				throw new Error("LocalEmbedProvider has been disposed");
 			}
-			sharedExtractor = extractor;
 			return extractor;
 		} finally {
 			sharedLoading = undefined;
