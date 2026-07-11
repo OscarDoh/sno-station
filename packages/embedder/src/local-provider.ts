@@ -1,5 +1,5 @@
 /**
- * Local ONNX embedding provider — Qwen3-Embedding-0.6B-ONNX, 1024-d vectors.
+ * Local ONNX embedding provider — PPLX embed v1 0.6B INT8, 1024-d vectors.
  *
  * Self-contained: all params via constructor; no app-level config dependency.
  */
@@ -18,14 +18,104 @@ import {
 	LOCAL_EMBEDDING_DTYPE_DEFAULT,
 	LOCAL_EMBEDDING_MODEL,
 	LOCAL_EMBEDDING_MODEL_REVISION,
+	LOCAL_EMBEDDING_SESSION_OPTIONS_DEFAULT,
 } from "./constants";
 import type {
 	DisposableProvider,
 	LocalEmbedConfig,
+	LocalEmbedDtype,
 	LocalEmbedPooling,
+	LocalEmbedSessionOptions,
 } from "./types";
 
 const log = createLogger("embedder:local");
+const EMBEDDER_OFFLINE_ENV_KEY = "SNOAI_EMBEDDER_OFFLINE";
+const HF_ENDPOINT_ENV_KEY = "HF_ENDPOINT";
+
+// Process-global singleton for the ONNX pipeline. All LocalEmbedProvider instances
+// share one FeatureExtractionPipeline because (a) @huggingface/transformers env is
+// process-global, (b) the configuredCacheDir check already enforces identical config,
+// and (c) each ONNX session allocates ~1.5 GiB native memory — duplicating it when
+// the host framework re-loads the plugin exhausts RSS on constrained VMs.
+let sharedExtractor: FeatureExtractionPipeline | undefined;
+let sharedLoading: Promise<FeatureExtractionPipeline> | undefined;
+let sharedRefCount = 0;
+let sharedPipelineKey: string | undefined;
+
+interface LocalPipelineSessionOptions {
+	graphOptimizationLevel: NonNullable<
+		LocalEmbedSessionOptions["graphOptimizationLevel"]
+	>;
+	enableMemPattern: boolean;
+	enableCpuMemArena: boolean;
+	freeDimensionOverrides: { batch_size: number };
+	executionMode?: NonNullable<LocalEmbedSessionOptions["executionMode"]>;
+	interOpNumThreads?: number;
+	intraOpNumThreads?: number;
+}
+
+interface LocalPipelineIdentity {
+	cacheDir: string;
+	modelId: string;
+	revision: string | undefined;
+	dtype: LocalEmbedDtype;
+	sessionOptions: LocalEmbedSessionOptions;
+}
+
+function buildSessionOptions(
+	options: LocalEmbedSessionOptions,
+): LocalPipelineSessionOptions {
+	const sessionOptions: LocalPipelineSessionOptions = {
+		graphOptimizationLevel:
+			options.graphOptimizationLevel ??
+			LOCAL_EMBEDDING_SESSION_OPTIONS_DEFAULT.graphOptimizationLevel,
+		enableMemPattern:
+			options.enableMemPattern ??
+			LOCAL_EMBEDDING_SESSION_OPTIONS_DEFAULT.enableMemPattern,
+		enableCpuMemArena:
+			options.enableCpuMemArena ??
+			LOCAL_EMBEDDING_SESSION_OPTIONS_DEFAULT.enableCpuMemArena,
+		freeDimensionOverrides: { batch_size: 1 },
+	};
+	if (options.executionMode !== undefined) {
+		sessionOptions.executionMode = options.executionMode;
+	}
+	if (options.interOpNumThreads !== undefined) {
+		sessionOptions.interOpNumThreads = options.interOpNumThreads;
+	}
+	if (options.intraOpNumThreads !== undefined) {
+		sessionOptions.intraOpNumThreads = options.intraOpNumThreads;
+	}
+	return sessionOptions;
+}
+
+function buildPipelineKey(identity: LocalPipelineIdentity): string {
+	return JSON.stringify({
+		cacheDir: identity.cacheDir,
+		modelId: identity.modelId,
+		revision: identity.revision,
+		dtype: identity.dtype,
+		sessionOptions: buildSessionOptions(identity.sessionOptions),
+	});
+}
+
+type NumericTensorData = ArrayLike<number> & {
+	subarray?: (start: number, end?: number) => ArrayLike<number>;
+};
+
+function isNumericTensorData(value: unknown): value is NumericTensorData {
+	if (typeof value !== "object" || value === null) return false;
+	return "length" in value && typeof value.length === "number";
+}
+
+function tensorDataToArray(data: unknown, length: number): number[] {
+	if (!isNumericTensorData(data)) {
+		throw new Error("Local embedding returned non-array tensor data");
+	}
+	return typeof data.subarray === "function"
+		? Array.from(data.subarray(0, length))
+		: Array.from(data).slice(0, length);
+}
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
@@ -42,17 +132,17 @@ export class ModelNotFoundError extends Error {
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export class LocalEmbedProvider implements DisposableProvider {
-	private _extractor: FeatureExtractionPipeline | undefined;
-	private _loading: Promise<FeatureExtractionPipeline> | undefined;
 	private _disposed = false;
 	private readonly cacheDir: string;
-	private readonly dtype: "q4" | "q8" | "fp16" | "fp32";
+	private readonly dtype: LocalEmbedDtype;
 	private readonly queryPrefix: string;
 	private readonly modelId: string;
-	private readonly revision: string;
+	private readonly revision: string | undefined;
 	private readonly nativeDim: number;
 	private readonly outputDim: number;
 	private readonly pooling: LocalEmbedPooling;
+	private readonly sessionOptions: LocalEmbedSessionOptions;
+	private readonly pipelineKey: string;
 
 	/**
 	 * Guard: transformers `env` is process-global — only one cacheDir is allowed per process.
@@ -63,6 +153,10 @@ export class LocalEmbedProvider implements DisposableProvider {
 	/** Reset static state — FOR TESTS ONLY. Not safe in production. */
 	static resetStaticState(): void {
 		LocalEmbedProvider.configuredCacheDir = undefined;
+		sharedExtractor = undefined;
+		sharedLoading = undefined;
+		sharedRefCount = 0;
+		sharedPipelineKey = undefined;
 	}
 
 	/** Output dimension exposed to consumers (after Matryoshka truncation, if any). */
@@ -79,8 +173,10 @@ export class LocalEmbedProvider implements DisposableProvider {
 		this.dtype = config?.dtype ?? LOCAL_EMBEDDING_DTYPE_DEFAULT;
 		this.queryPrefix = config?.queryPrefix ?? EMBEDDING_QUERY_PREFIX;
 		this.modelId = config?.model ?? LOCAL_EMBEDDING_MODEL;
-		this.revision = config?.revision ?? LOCAL_EMBEDDING_MODEL_REVISION;
-		// Default native dim assumes the bundled Qwen3-0.6B (1024). Callers using
+		this.revision =
+			config?.revision ??
+			(config?.model === undefined ? LOCAL_EMBEDDING_MODEL_REVISION : undefined);
+		// Default native dim assumes the bundled PPLX 0.6B (1024). Callers using
 		// other models must pass nativeDim explicitly so Matryoshka math is correct.
 		this.nativeDim = config?.nativeDim ?? EMBEDDING_DIMENSION;
 		this.outputDim = config?.outputDim ?? this.nativeDim;
@@ -90,7 +186,16 @@ export class LocalEmbedProvider implements DisposableProvider {
 					`Matryoshka truncation only shrinks dimensions.`,
 			);
 		}
-		this.pooling = config?.pooling ?? "last_token";
+		this.pooling = config?.pooling ?? "mean";
+		this.sessionOptions = config?.sessionOptions ?? {};
+		this.pipelineKey = buildPipelineKey({
+			cacheDir: this.cacheDir,
+			modelId: this.modelId,
+			revision: this.revision,
+			dtype: this.dtype,
+			sessionOptions: this.sessionOptions,
+		});
+		sharedRefCount++;
 	}
 
 	// ── Pipeline lifecycle ─────────────────────────────────────────────────
@@ -101,27 +206,48 @@ export class LocalEmbedProvider implements DisposableProvider {
 	// this must be replaced with a proper mutex.
 	private async getExtractor(): Promise<FeatureExtractionPipeline> {
 		if (this._disposed) throw new Error("LocalEmbedProvider has been disposed");
-		if (this._extractor) return this._extractor;
-		if (this._loading) {
-			const extractor = await this._loading;
+		this.assertCompatibleSharedPipeline();
+		if (sharedExtractor) return sharedExtractor;
+		if (sharedLoading) {
+			const extractor = await sharedLoading;
 			if (this._disposed) {
 				throw new Error("LocalEmbedProvider has been disposed");
 			}
-			this._extractor = extractor;
+			if (!sharedExtractor) {
+				sharedExtractor = extractor;
+			}
 			return extractor;
 		}
 
-		this._loading = this.initPipeline();
+		sharedPipelineKey = this.pipelineKey;
+		sharedLoading = this.initPipeline();
 		try {
-			const extractor = await this._loading;
+			const extractor = await sharedLoading;
+			sharedExtractor = extractor;
 			if (this._disposed) {
 				throw new Error("LocalEmbedProvider has been disposed");
 			}
-			this._extractor = extractor;
-			return this._extractor;
+			return extractor;
 		} finally {
-			this._loading = undefined;
+			sharedLoading = undefined;
+			if (!sharedExtractor && sharedRefCount === 0) {
+				sharedPipelineKey = undefined;
+			}
 		}
+	}
+
+	private assertCompatibleSharedPipeline(): void {
+		if (
+			sharedPipelineKey === undefined ||
+			sharedPipelineKey === this.pipelineKey
+		) {
+			return;
+		}
+		throw new Error(
+			"LocalEmbedProvider shared ONNX pipeline is already loaded with a different " +
+				"model, revision, dtype, cacheDir, or sessionOptions. Dispose all live " +
+				"providers before changing pipeline configuration.",
+		);
 	}
 
 	private async initPipeline(): Promise<FeatureExtractionPipeline> {
@@ -146,9 +272,9 @@ export class LocalEmbedProvider implements DisposableProvider {
 		// set, overrides the hub host (useful for region mirrors like
 		// https://hf-mirror.com behind GFW).
 		env.cacheDir = this.cacheDir;
-		env.allowRemoteModels = process.env["SNOAI_EMBEDDER_OFFLINE"] !== "1";
+		env.allowRemoteModels = process.env[EMBEDDER_OFFLINE_ENV_KEY] !== "1";
 		env.localModelPath = this.cacheDir;
-		const hfEndpoint = process.env["HF_ENDPOINT"]?.trim();
+		const hfEndpoint = process.env[HF_ENDPOINT_ENV_KEY]?.trim();
 		if (hfEndpoint) {
 			env.remoteHost = hfEndpoint.endsWith("/") ? hfEndpoint : `${hfEndpoint}/`;
 		}
@@ -159,20 +285,17 @@ export class LocalEmbedProvider implements DisposableProvider {
 			dtype: this.dtype,
 			nativeDim: this.nativeDim,
 			outputDim: this.outputDim,
+			sessionOptions: buildSessionOptions(this.sessionOptions),
 		});
 		const t0 = performance.now();
 
 		try {
+			const sessionOptions = buildSessionOptions(this.sessionOptions);
 			const extractor = await pipeline("feature-extraction", this.modelId, {
-				revision: this.revision,
+				...(this.revision !== undefined ? { revision: this.revision } : {}),
 				dtype: this.dtype,
 				device: "cpu",
-				session_options: {
-					graphOptimizationLevel: "extended",
-					enableMemPattern: true,
-					enableCpuMemArena: true,
-					freeDimensionOverrides: { batch_size: 1 },
-				},
+				session_options: sessionOptions,
 			});
 
 			const durationMs = Math.round(performance.now() - t0);
@@ -225,13 +348,7 @@ export class LocalEmbedProvider implements DisposableProvider {
 					`but provider was configured with nativeDim=${this.nativeDim}.`,
 			);
 		}
-		const outputData = output.data as ArrayLike<number> & {
-			subarray?: (start: number, end?: number) => ArrayLike<number>;
-		};
-		const native =
-			typeof outputData.subarray === "function"
-				? Array.from(outputData.subarray(0, dim))
-				: Array.from(outputData).slice(0, dim);
+		const native = tensorDataToArray(output.data, dim);
 		if (native.length !== this.nativeDim) {
 			throw new Error(
 				`Expected ${this.nativeDim}-d native embedding, got ${native.length}-d`,
@@ -255,7 +372,11 @@ export class LocalEmbedProvider implements DisposableProvider {
 		// inference anyway. A loop is explicit and avoids allocating N promise objects.
 		const results: number[][] = new Array(texts.length);
 		for (let i = 0; i < texts.length; i++) {
-			results[i] = await this.embed(texts[i] as string);
+			const text = texts[i];
+			if (text === undefined) {
+				throw new Error(`Missing text at batch index ${i}`);
+			}
+			results[i] = await this.embed(text);
 		}
 		return results;
 	}
@@ -263,23 +384,35 @@ export class LocalEmbedProvider implements DisposableProvider {
 	// ── Lifecycle helpers ──────────────────────────────────────────────────
 
 	async dispose(): Promise<void> {
+		if (this._disposed) return;
 		log.debug("disposing local embedding provider");
 		this._disposed = true;
+		sharedRefCount = Math.max(0, sharedRefCount - 1);
 
-		// If initialization is in flight, wait for it so we can dispose the result.
-		const pending = this._loading;
+		if (sharedRefCount > 0) return;
+
+		const pending = sharedLoading;
 		if (pending) {
 			const extractor = await pending.catch(() => undefined);
-			// After await, _extractor may have been set by getExtractor().
-			// Dispose via _extractor below to avoid double-dispose.
-			if (extractor && extractor !== this._extractor) {
+			if (sharedRefCount > 0) {
+				if (extractor && !sharedExtractor) {
+					sharedExtractor = extractor;
+				}
+				return;
+			}
+			if (extractor && extractor !== sharedExtractor) {
 				await extractor.dispose();
 			}
 		}
 
-		if (this._extractor) {
-			await this._extractor.dispose();
-			this._extractor = undefined;
+		if (sharedRefCount > 0) return;
+
+		if (sharedExtractor) {
+			await sharedExtractor.dispose();
+			sharedExtractor = undefined;
+		}
+		if (sharedLoading === undefined) {
+			sharedPipelineKey = undefined;
 		}
 	}
 
