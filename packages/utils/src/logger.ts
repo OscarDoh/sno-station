@@ -304,9 +304,9 @@ export function createLogger(scope: string) {
 	};
 
 	return {
-		debug: (msg: string, data?: unknown) => emit("debug", msg, data),
-		info: (msg: string, data?: unknown) => emit("info", msg, data),
-		warn: (msg: string, data?: unknown) => emit("warn", msg, data),
-		error: (msg: string, data?: unknown) => emit("error", msg, data),
+		debug: (msg: string, data?: unknown): boolean => emit("debug", msg, data),
+		info: (msg: string, data?: unknown): boolean => emit("info", msg, data),
+		warn: (msg: string, data?: unknown): boolean => emit("warn", msg, data),
+		error: (msg: string, data?: unknown): boolean => emit("error", msg, data),
 	};
 }

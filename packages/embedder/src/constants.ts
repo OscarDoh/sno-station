@@ -38,7 +38,7 @@ export const LOCAL_EMBEDDING_SESSION_OPTIONS_DEFAULT = {
  * resolves identically regardless of process CWD. Apps can override via
  * constructor config.
  */
-export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT = join(
+export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT: string = join(
 	CONSTANTS_DIR,
 	"..",
 	".cache",
