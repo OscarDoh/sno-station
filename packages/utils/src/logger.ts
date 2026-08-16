@@ -162,6 +162,16 @@ if (
 	);
 }
 
+/**
+ * The level this process is ACTUALLY filtering on, after the fallback above. An invalid `LOG_LEVEL`
+ * silently becomes `info`, so a caller that reports the environment variable instead of this value
+ * reports a level the process never used. Exported so a run's provenance can record what was in
+ * force rather than what was intended.
+ */
+export function effectiveLogLevel(): LogLevel {
+	return currentLevel;
+}
+
 // ── Unified file logging ─────────────────────────────────────────────────────
 // ALL logs from every app/package go to ONE file: {repoRoot}/logs/dev.log
 // Auto-detected from .git directory. No env var needed. In production (compiled
