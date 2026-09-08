@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const CONSTANTS_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** Embedding vector dimension — local PPLX and Voyage (cloud) both output 1024-d */
+/** Embedding vector dimension — local PPLX outputs 1024-d */
 export const EMBEDDING_DIMENSION = 1024;
 
 /** Local ONNX model identifier (Hugging Face hub) */
@@ -44,12 +44,6 @@ export const LOCAL_EMBEDDING_CACHE_DIR_DEFAULT: string = join(
 	".cache",
 	"models",
 );
-
-/** Default query prefix. The bundled PPLX embedder is trained without task prefixes. */
-export const EMBEDDING_QUERY_PREFIX = "";
-
-/** Default cloud embedding model */
-export const CLOUD_EMBEDDING_MODEL_DEFAULT = "voyage-3";
 
 /** LRU cache defaults */
 export const LRU_CACHE_MAX_DEFAULT = 256;

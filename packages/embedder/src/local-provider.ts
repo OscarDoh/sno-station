@@ -13,7 +13,6 @@ import {
 import { createLogger } from "@snoai/utils/logger";
 import {
 	EMBEDDING_DIMENSION,
-	EMBEDDING_QUERY_PREFIX,
 	LOCAL_EMBEDDING_CACHE_DIR_DEFAULT,
 	LOCAL_EMBEDDING_DTYPE_DEFAULT,
 	LOCAL_EMBEDDING_MODEL,
@@ -135,7 +134,6 @@ export class LocalEmbedProvider implements DisposableProvider {
 	private _disposed = false;
 	private readonly cacheDir: string;
 	private readonly dtype: LocalEmbedDtype;
-	private readonly queryPrefix: string;
 	private readonly modelId: string;
 	private readonly revision: string | undefined;
 	private readonly nativeDim: number;
@@ -171,7 +169,6 @@ export class LocalEmbedProvider implements DisposableProvider {
 			config?.cacheDir ?? LOCAL_EMBEDDING_CACHE_DIR_DEFAULT,
 		);
 		this.dtype = config?.dtype ?? LOCAL_EMBEDDING_DTYPE_DEFAULT;
-		this.queryPrefix = config?.queryPrefix ?? EMBEDDING_QUERY_PREFIX;
 		this.modelId = config?.model ?? LOCAL_EMBEDDING_MODEL;
 		this.revision =
 			config?.revision ??
@@ -359,10 +356,6 @@ export class LocalEmbedProvider implements DisposableProvider {
 			return native;
 		}
 		return truncateAndRenormalize(native, this.outputDim);
-	}
-
-	async embedQuery(text: string): Promise<number[]> {
-		return this.embed(`${this.queryPrefix}${text}`);
 	}
 
 	async embedDocuments(texts: string[]): Promise<number[][]> {

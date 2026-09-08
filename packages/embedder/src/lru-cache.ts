@@ -14,9 +14,8 @@ import type {
 	EmbeddingProvider,
 } from "./types";
 
-/** Key prefixes prevent collision between passage and query embeddings for the same text. */
+/** Shared key prefix for single-text and document-batch cache entries. */
 const PASSAGE_PREFIX = "p:";
-const QUERY_PREFIX = "q:";
 
 export class CachedEmbeddingProvider implements DisposableProvider {
 	private readonly inner: EmbeddingProvider;
@@ -75,11 +74,6 @@ export class CachedEmbeddingProvider implements DisposableProvider {
 	async embed(text: string): Promise<number[]> {
 		const key = `${PASSAGE_PREFIX}${text}`;
 		return this.getOrLoad(key, async () => this.inner.embed(text));
-	}
-
-	async embedQuery(text: string): Promise<number[]> {
-		const key = `${QUERY_PREFIX}${text}`;
-		return this.getOrLoad(key, async () => this.inner.embedQuery(text));
 	}
 
 	async embedDocuments(texts: string[]): Promise<number[][]> {
@@ -152,15 +146,15 @@ export class CachedEmbeddingProvider implements DisposableProvider {
 				}
 			}
 
-			try {
-				await freshEmbeddingsPromise;
-			} finally {
+			const clearInflight = (): void => {
 				for (const [key, keyPromise] of batchPromises) {
 					if (this.inflight.get(key) === keyPromise) {
 						this.inflight.delete(key);
 					}
 				}
-			}
+			};
+			// Await only Promise.all below so every result has a rejection handler before the batch settles.
+			void freshEmbeddingsPromise.then(clearInflight, clearInflight);
 		}
 
 		return Promise.all(
