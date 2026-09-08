@@ -146,15 +146,15 @@ export class CachedEmbeddingProvider implements DisposableProvider {
 				}
 			}
 
-			try {
-				await freshEmbeddingsPromise;
-			} finally {
+			const clearInflight = (): void => {
 				for (const [key, keyPromise] of batchPromises) {
 					if (this.inflight.get(key) === keyPromise) {
 						this.inflight.delete(key);
 					}
 				}
-			}
+			};
+			// Await only Promise.all below so every result has a rejection handler before the batch settles.
+			void freshEmbeddingsPromise.then(clearInflight, clearInflight);
 		}
 
 		return Promise.all(
