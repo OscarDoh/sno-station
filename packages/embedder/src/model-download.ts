@@ -154,6 +154,11 @@ export function isModelCached(
 				// Marker exists but unreadable/unparseable — treat as invalid cache.
 				log.warn("download marker is corrupt, re-download needed", {
 					cacheDir,
+				}, {
+					event_name: "embedder.model.download.ismodelcached",
+					file: "packages/embedder/src/model-download.ts",
+					function: "isModelCached",
+					site_id: "embedder.model.download.ismodelcached.1",
 				});
 				return false;
 			}
@@ -164,6 +169,11 @@ export function isModelCached(
 				log.info("cached model revision mismatch, re-download needed", {
 					cached: String(marker.revision),
 					expected: expectedRevision,
+				}, {
+					event_name: "embedder.model.download.ismodelcached",
+					file: "packages/embedder/src/model-download.ts",
+					function: "isModelCached",
+					site_id: "embedder.model.download.ismodelcached.2",
 				});
 				return false;
 			}
@@ -171,6 +181,11 @@ export function isModelCached(
 				log.info("cached model dtype mismatch, re-download needed", {
 					cached: String(marker.dtype),
 					expected: expectedDtype,
+				}, {
+					event_name: "embedder.model.download.ismodelcached",
+					file: "packages/embedder/src/model-download.ts",
+					function: "isModelCached",
+					site_id: "embedder.model.download.ismodelcached.3",
 				});
 				return false;
 			}
@@ -180,7 +195,12 @@ export function isModelCached(
 	} catch (error: unknown) {
 		log.warn("failed to inspect model cache directory", {
 			cacheDir,
-			error: error instanceof Error ? error.message : String(error),
+			error,
+		}, {
+			event_name: "embedder.model.download.ismodelcached",
+			file: "packages/embedder/src/model-download.ts",
+			function: "isModelCached",
+			site_id: "embedder.model.download.ismodelcached.4",
 		});
 		return false;
 	}
@@ -203,7 +223,12 @@ export function getDirSizeMB(dirPath: string): number {
 	} catch (error: unknown) {
 		log.warn("failed to read directory for size calculation", {
 			dirPath,
-			error: error instanceof Error ? error.message : String(error),
+			error,
+		}, {
+			event_name: "embedder.model.download.getdirsizemb",
+			file: "packages/embedder/src/model-download.ts",
+			function: "getDirSizeMB",
+			site_id: "embedder.model.download.getdirsizemb.5",
 		});
 	}
 	return Math.round(total / (1024 * 1024));
@@ -286,6 +311,11 @@ async function waitForLock(
 
 	log.info("another process is downloading the model, waiting...", {
 		cacheDir,
+	}, {
+		event_name: "embedder.model.download.waitforlock",
+		file: "packages/embedder/src/model-download.ts",
+		function: "waitForLock",
+		site_id: "embedder.model.download.waitforlock.6",
 	});
 	process.stderr.write("  Waiting for another download to finish...\n");
 
@@ -296,7 +326,12 @@ async function waitForLock(
 		if (isModelCached(cacheDir, expectedRevision, expectedDtype)) return;
 		// Stale lock from a crashed process?
 		if (isLockStale(cacheDir)) {
-			log.warn("breaking stale download lock", { cacheDir });
+			log.warn("breaking stale download lock", { cacheDir }, {
+				event_name: "embedder.model.download.waitforlock",
+				file: "packages/embedder/src/model-download.ts",
+				function: "waitForLock",
+				site_id: "embedder.model.download.waitforlock.7",
+			});
 			releaseLock(cacheDir);
 			return;
 		}
@@ -332,7 +367,12 @@ export async function ensureModelDownloaded(
 	// Already cached — fast path (validates revision + dtype match)
 	if (isModelCached(cacheDir, LOCAL_EMBEDDING_MODEL_REVISION, dtype)) {
 		const sizeMB = getDirSizeMB(cacheDir);
-		log.info("local embedding model already cached", { sizeMB, cacheDir });
+		log.info("local embedding model already cached", { sizeMB, cacheDir }, {
+			event_name: "embedder.model.download.ensuremodeldownloaded",
+			file: "packages/embedder/src/model-download.ts",
+			function: "ensureModelDownloaded",
+			site_id: "embedder.model.download.ensuremodeldownloaded.8",
+		});
 		return;
 	}
 
@@ -343,13 +383,15 @@ export async function ensureModelDownloaded(
 		// Re-check: the other process may have completed the download.
 		if (isModelCached(cacheDir, LOCAL_EMBEDDING_MODEL_REVISION, dtype)) {
 			const sizeMB = getDirSizeMB(cacheDir);
-			log.info(
-				"local embedding model already cached (downloaded by another process)",
-				{
+			log.info("local embedding model already cached (downloaded by another process)", {
 					sizeMB,
 					cacheDir,
-				},
-			);
+				}, {
+					event_name: "embedder.model.download.ensuremodeldownloaded",
+					file: "packages/embedder/src/model-download.ts",
+					function: "ensureModelDownloaded",
+					site_id: "embedder.model.download.ensuremodeldownloaded.9",
+				});
 			return;
 		}
 		// Other process failed or lock was stale — acquire and download ourselves.
@@ -391,6 +433,11 @@ export async function ensureModelDownloaded(
 			revision: LOCAL_EMBEDDING_MODEL_REVISION,
 			dtype,
 			cacheDir,
+		}, {
+			event_name: "embedder.model.download.ensuremodeldownloaded",
+			file: "packages/embedder/src/model-download.ts",
+			function: "ensureModelDownloaded",
+			site_id: "embedder.model.download.ensuremodeldownloaded.10",
 		});
 
 		// Save current transformer env state so we can restore it after download.
@@ -472,6 +519,11 @@ export async function ensureModelDownloaded(
 			sizeMB: finalSizeMB,
 			elapsedSec,
 			cacheDir,
+		}, {
+			event_name: "embedder.model.download.ensuremodeldownloaded",
+			file: "packages/embedder/src/model-download.ts",
+			function: "ensureModelDownloaded",
+			site_id: "embedder.model.download.ensuremodeldownloaded.11",
 		});
 	} finally {
 		// Always release the lock — on success (after marker is written) or
