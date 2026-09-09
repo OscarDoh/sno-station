@@ -13,7 +13,6 @@ import {
 import { createLogger } from "@snoai/utils/logger";
 import {
 	EMBEDDING_DIMENSION,
-	EMBEDDING_QUERY_PREFIX,
 	LOCAL_EMBEDDING_CACHE_DIR_DEFAULT,
 	LOCAL_EMBEDDING_DTYPE_DEFAULT,
 	LOCAL_EMBEDDING_MODEL,
@@ -135,7 +134,6 @@ export class LocalEmbedProvider implements DisposableProvider {
 	private _disposed = false;
 	private readonly cacheDir: string;
 	private readonly dtype: LocalEmbedDtype;
-	private readonly queryPrefix: string;
 	private readonly modelId: string;
 	private readonly revision: string | undefined;
 	private readonly nativeDim: number;
@@ -171,7 +169,6 @@ export class LocalEmbedProvider implements DisposableProvider {
 			config?.cacheDir ?? LOCAL_EMBEDDING_CACHE_DIR_DEFAULT,
 		);
 		this.dtype = config?.dtype ?? LOCAL_EMBEDDING_DTYPE_DEFAULT;
-		this.queryPrefix = config?.queryPrefix ?? EMBEDDING_QUERY_PREFIX;
 		this.modelId = config?.model ?? LOCAL_EMBEDDING_MODEL;
 		this.revision =
 			config?.revision ??
@@ -286,6 +283,11 @@ export class LocalEmbedProvider implements DisposableProvider {
 			nativeDim: this.nativeDim,
 			outputDim: this.outputDim,
 			sessionOptions: buildSessionOptions(this.sessionOptions),
+		}, {
+			event_name: "embedder.local.provider.initpipeline",
+			file: "packages/embedder/src/local-provider.ts",
+			function: "initPipeline",
+			site_id: "embedder.local.provider.initpipeline.1",
 		});
 		const t0 = performance.now();
 
@@ -299,7 +301,12 @@ export class LocalEmbedProvider implements DisposableProvider {
 			});
 
 			const durationMs = Math.round(performance.now() - t0);
-			log.info("ONNX model loaded", { durationMs, model: this.modelId });
+			log.info("ONNX model loaded", { durationMs, model: this.modelId }, {
+				event_name: "embedder.local.provider.initpipeline",
+				file: "packages/embedder/src/local-provider.ts",
+				function: "initPipeline",
+				site_id: "embedder.local.provider.initpipeline.2",
+			});
 			return extractor;
 		} catch (error) {
 			const msg = error instanceof Error ? error.message : String(error);
@@ -312,10 +319,20 @@ export class LocalEmbedProvider implements DisposableProvider {
 				log.error("ONNX model not found", {
 					cacheDir: this.cacheDir,
 					model: this.modelId,
+				}, {
+					event_name: "embedder.local.provider.initpipeline",
+					file: "packages/embedder/src/local-provider.ts",
+					function: "initPipeline",
+					site_id: "embedder.local.provider.initpipeline.3",
 				});
 				throw new ModelNotFoundError(this.modelId);
 			}
-			log.error("ONNX model init failed", { error: String(error) });
+			log.error("ONNX model init failed", { error }, {
+				event_name: "embedder.local.provider.initpipeline",
+				file: "packages/embedder/src/local-provider.ts",
+				function: "initPipeline",
+				site_id: "embedder.local.provider.initpipeline.4",
+			});
 			throw error;
 		}
 	}
@@ -361,13 +378,14 @@ export class LocalEmbedProvider implements DisposableProvider {
 		return truncateAndRenormalize(native, this.outputDim);
 	}
 
-	async embedQuery(text: string): Promise<number[]> {
-		return this.embed(`${this.queryPrefix}${text}`);
-	}
-
 	async embedDocuments(texts: string[]): Promise<number[][]> {
 		if (texts.length === 0) return [];
-		log.debug("batch local embedding", { count: texts.length });
+		log.debug("batch local embedding", { count: texts.length }, {
+			event_name: "embedder.local.provider.embeddocuments",
+			file: "packages/embedder/src/local-provider.ts",
+			function: "embedDocuments",
+			site_id: "embedder.local.provider.embeddocuments.5",
+		});
 		// Sequential loop — ONNX session with batch_size=1 forces CPU-bound serial
 		// inference anyway. A loop is explicit and avoids allocating N promise objects.
 		const results: number[][] = new Array(texts.length);
@@ -385,7 +403,12 @@ export class LocalEmbedProvider implements DisposableProvider {
 
 	async dispose(): Promise<void> {
 		if (this._disposed) return;
-		log.debug("disposing local embedding provider");
+		log.debug("disposing local embedding provider", {}, {
+			event_name: "embedder.local.provider.dispose",
+			file: "packages/embedder/src/local-provider.ts",
+			function: "dispose",
+			site_id: "embedder.local.provider.dispose.6",
+		});
 		this._disposed = true;
 		sharedRefCount = Math.max(0, sharedRefCount - 1);
 
