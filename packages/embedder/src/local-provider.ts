@@ -128,6 +128,17 @@ export class ModelNotFoundError extends Error {
 	}
 }
 
+/** Thrown by `countTokens()` before the model (and its tokenizer) has loaded. */
+export class ModelNotLoadedError extends Error {
+	constructor(modelId: string) {
+		super(
+			`Local embedding model "${modelId}" is not loaded yet; ` +
+				`await embed() or the embedder warmup before counting tokens.`,
+		);
+		this.name = "ModelNotLoadedError";
+	}
+}
+
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export class LocalEmbedProvider implements DisposableProvider {
@@ -338,6 +349,15 @@ export class LocalEmbedProvider implements DisposableProvider {
 	}
 
 	// ── EmbeddingProvider interface ────────────────────────────────────────
+
+	countTokens(text: string): number {
+		if (this._disposed) throw new Error("LocalEmbedProvider has been disposed");
+		this.assertCompatibleSharedPipeline();
+		if (!sharedExtractor) {
+			throw new ModelNotLoadedError(this.modelId);
+		}
+		return sharedExtractor.tokenizer.encode(text, { add_special_tokens: false }).length;
+	}
 
 	async embed(text: string): Promise<number[]> {
 		const extractor = await this.getExtractor();
