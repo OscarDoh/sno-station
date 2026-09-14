@@ -26,6 +26,10 @@ export class CachedEmbeddingProvider implements DisposableProvider {
 		return this.inner.dimension;
 	}
 
+	countTokens(text: string): number {
+		return this.inner.countTokens(text);
+	}
+
 	constructor(provider: EmbeddingProvider, config?: CacheConfig) {
 		this.inner = provider;
 		this.cache = new LRUCache<string, number[]>({
