@@ -6,18 +6,18 @@ import type { TokenizerMode } from "./chunk-config.js";
  */
 const CJK_REGEX = /[㐀-䶿一-鿿぀-ゟ゠-ヿ가-힯]/g;
 
-/** Per project convention: `DEFAULT_CHARS_PER_TOKEN = 3.0` (mem-claw/config). */
+/**
+ * Character-per-token estimate for non-CJK text. This counter shapes chunk geometry only;
+ * it is not a hard limit. Hard limits on a memory record are checked by the consumer with
+ * the embedding model's own tokenizer, so this estimate is deliberately conservative
+ * (over-counts, so a chunk sized by it never overflows the model).
+ */
 const CHARS_PER_TOKEN = 3;
 
 /**
- * CJK divisor 1.2 is intentionally tighter than the project-wide embedder-context
- * divisor `CJK_CHAR_TOKEN_DIVISOR = 2.5` (see apps/mem-claw/config/index.ts:127).
- *
- * Rationale: the embedder layer caps at 8192 tokens, so its conservative divisor
- * favors fewer-but-larger chunks. The chunker layer caps at maxTokens=448, where
- * the failure mode is overflow at the embedder, not under-utilization. We accept
- * smaller-than-needed CJK chunks (at the chunker) as the cost of strict cap
- * adherence (at the embedder). Tightening 2.5 → 1.2 is the safe direction.
+ * Character-per-token estimate for CJK text, conservative in the same direction: measured
+ * 2026-09-14 with the Qwen3 tokenizer, Chinese prose runs ~1.3–1.5 hanzi per token, so 1.2
+ * over-counts slightly and a chunk sized by it stays inside the model's window.
  */
 const CJK_CHARS_PER_TOKEN = 1.2;
 
