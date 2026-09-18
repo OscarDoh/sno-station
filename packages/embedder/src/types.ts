@@ -9,6 +9,12 @@ export interface EmbeddingProvider {
 	embedDocuments(texts: string[]): Promise<number[][]>;
 	/** Vector dimension (always 1024) */
 	readonly dimension: number;
+	/**
+	 * Exact token count of `text` under this provider's own tokenizer — the same count the
+	 * model sees, so a limit checked here is a hard limit, not an estimate. Synchronous;
+	 * throws until the model has loaded (`embed()` or `warmup` loads it).
+	 */
+	countTokens(text: string): number;
 }
 
 /** Disposable extension — providers that hold resources (ONNX sessions, HTTP clients) */
