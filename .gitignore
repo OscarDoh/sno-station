@@ -3,8 +3,6 @@ dist/
 dist-e2e/
 target/
 .cache/
-graphify-out/
-graphify-out-storage/
 *.tgz
 *.tar.gz
 *.tsbuildinfo

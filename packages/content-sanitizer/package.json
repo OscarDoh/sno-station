@@ -29,9 +29,8 @@
 		"build": "rm -rf dist && tsc -p tsconfig.json",
 		"prepack": "npm run build",
 		"typecheck": "tsc --noEmit",
-		"lint": "biome check src/ tests/",
-		"lint:fix": "biome check --write src/ tests/",
-		"test": "vitest run tests"
+		"lint": "biome check src/",
+		"lint:fix": "biome check --write src/"
 	},
 	"dependencies": {
 		"@snoai/chunking": "^1.0.1",

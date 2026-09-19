@@ -37,7 +37,6 @@
 			"!**/dist",
 			"!**/dist-e2e",
 			"!**/.venv",
-			"!**/graphify-out",
 			"!**/*.gen.ts",
 			"!.onhold",
 			"!**/__snapshots__"
