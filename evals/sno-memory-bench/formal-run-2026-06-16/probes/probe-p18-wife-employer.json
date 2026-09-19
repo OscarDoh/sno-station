@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_0133fce1-c0fd-41f6-b8f1-9a31b9819e10",
+  "object": "chat.completion",
+  "created": 1781635337,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Stripe"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 89500,
+    "completion_tokens": 17,
+    "total_tokens": 89517,
+    "prompt_tokens_details": {
+      "cached_tokens": 88960
+    }
+  },
+  "_latencyMs": 5178
+}

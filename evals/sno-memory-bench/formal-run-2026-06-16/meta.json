@@ -1,0 +1,25 @@
+{
+  "plugin": "mem-claw",
+  "runId": "bench23-r1",
+  "startedAt": "2026-06-16T18:29:40Z",
+  "corpus": {
+    "path": "evals/sno-memory-bench/bench/corpus-v1.json",
+    "version": 1,
+    "name": "sno-memory-bench-v1",
+    "slug": "v1"
+  },
+  "source": {
+    "upstreamRepository": "",
+    "upstreamCommit": ""
+  },
+  "identity": {
+    "teachUser": "bench-user-bench23-r1",
+    "probeUser": "bench-user-bench23-r1"
+  },
+  "persona": "Alex Chen",
+  "teachTurns": 15,
+  "probes": 23,
+  "criteria": 0,
+  "gateway": "https://192.168.1.53:19789",
+  "model": "openclaw (agent-backed; gateway model defaults apply)"
+}

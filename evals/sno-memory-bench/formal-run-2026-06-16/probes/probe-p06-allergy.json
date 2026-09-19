@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_87a74750-85aa-4390-a446-8f906487255e",
+  "object": "chat.completion",
+  "created": 1781635281,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Yes: shellfish."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 85228,
+    "completion_tokens": 9,
+    "total_tokens": 85237,
+    "prompt_tokens_details": {
+      "cached_tokens": 84352
+    }
+  },
+  "_latencyMs": 3941
+}

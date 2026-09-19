@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_11a85397-189f-4657-8a0e-a7253150d120",
+  "object": "chat.completion",
+  "created": 1781635274,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "DeepMind in London"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 84549,
+    "completion_tokens": 21,
+    "total_tokens": 84570,
+    "prompt_tokens_details": {
+      "cached_tokens": 83840
+    }
+  },
+  "_latencyMs": 3947
+}

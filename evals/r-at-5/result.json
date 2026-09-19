@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "benchmark": "LongMemEval-S retrieval",
+  "run_date": "2026-09-09",
+  "run_identity": "r5-hybrid-full-20260909T012556Z",
+  "source_revision": "50497729a",
+  "dataset": {
+    "name": "LongMemEval-S",
+    "questions": 500
+  },
+  "product_mode": "agentmemory-hybrid",
+  "model_configuration": {
+    "embedding": "tss-deposium/pplx-embed-v1-0.6b-onnx-int8-standard",
+    "answering_model": null,
+    "judge_model": null
+  },
+  "metrics": {
+    "recall_at_5_percent": 95.4,
+    "recall_at_10_percent": 98.6,
+    "recall_at_20_percent": 99.4,
+    "ndcg_at_10_percent": 87.8,
+    "mrr_percent": 88.3
+  },
+  "limitations": [
+    "Retrieval-only result; it does not measure answer quality."
+  ],
+  "source_artifact": {
+    "sha256": "fa6935df6d00fb3f38fddf3e9b730259283789ffef02751d9ced425dea373914"
+  },
+  "public_evidence": {
+    "path": "formal-run-2026-09-09/",
+    "retrieval_records": 500,
+    "retrieved_results_per_question": 20
+  }
+}

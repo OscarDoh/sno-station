@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_928ca6dc-568e-4f34-823c-cf6be7b220ea",
+  "object": "chat.completion",
+  "created": 1781635345,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Lance"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 90180,
+    "completion_tokens": 6,
+    "total_tokens": 90186,
+    "prompt_tokens_details": {
+      "cached_tokens": 89472
+    }
+  },
+  "_latencyMs": 3785
+}

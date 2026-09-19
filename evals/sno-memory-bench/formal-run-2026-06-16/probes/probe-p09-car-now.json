@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_cc897a39-face-44c6-af0a-61e1c609e3ed",
+  "object": "chat.completion",
+  "created": 1781635297,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "2024 Honda Civic hybrid"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 86238,
+    "completion_tokens": 26,
+    "total_tokens": 86264,
+    "prompt_tokens_details": {
+      "cached_tokens": 85376
+    }
+  },
+  "_latencyMs": 5665
+}

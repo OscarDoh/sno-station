@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_db5b359d-3c85-4939-b938-2df3a98c9306",
+  "object": "chat.completion",
+  "created": 1781635287,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Rust and TypeScript"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 85567,
+    "completion_tokens": 8,
+    "total_tokens": 85575,
+    "prompt_tokens_details": {
+      "cached_tokens": 84864
+    }
+  },
+  "_latencyMs": 6042
+}

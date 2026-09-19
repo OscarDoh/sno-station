@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_2c1007f1-0198-4738-b687-5475abef1d22",
+  "object": "chat.completion",
+  "created": 1781635262,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Maya Patel"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 83466,
+    "completion_tokens": 26,
+    "total_tokens": 83492,
+    "prompt_tokens_details": {
+      "cached_tokens": 75648
+    }
+  },
+  "_latencyMs": 8677
+}

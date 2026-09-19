@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_2c8520d3-3bd5-4ab8-856c-28430a2379fc",
+  "object": "chat.completion",
+  "created": 1781635352,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Podman"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 90852,
+    "completion_tokens": 6,
+    "total_tokens": 90858,
+    "prompt_tokens_details": {
+      "cached_tokens": 89984
+    }
+  },
+  "_latencyMs": 3606
+}

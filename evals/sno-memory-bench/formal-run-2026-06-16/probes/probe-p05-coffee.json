@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_695e8e96-8990-44f4-8611-744951498ec9",
+  "object": "chat.completion",
+  "created": 1781635277,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "oat milk latte"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 84889,
+    "completion_tokens": 8,
+    "total_tokens": 84897,
+    "prompt_tokens_details": {
+      "cached_tokens": 84352
+    }
+  },
+  "_latencyMs": 3541
+}

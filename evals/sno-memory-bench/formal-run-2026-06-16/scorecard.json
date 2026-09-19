@@ -1,0 +1,305 @@
+{
+  "plugin": "mem-claw",
+  "runId": "bench23-r1",
+  "corpus": "sno-memory-bench-v1",
+  "corpusMeta": {
+    "path": "evals/sno-memory-bench/bench/corpus-v1.json",
+    "version": 1,
+    "name": "sno-memory-bench-v1",
+    "slug": "v1"
+  },
+  "source": {
+    "upstreamRepository": "",
+    "upstreamCommit": ""
+  },
+  "identity": {
+    "teachUser": "bench-user-bench23-r1",
+    "probeUser": "bench-user-bench23-r1"
+  },
+  "startedAt": "2026-06-16T18:29:40Z",
+  "finishedAt": "2026-06-16T18:43:27Z",
+  "memory": {
+    "before": 0,
+    "afterTeach": 0,
+    "final": 0,
+    "deltaCaptured": 0,
+    "byCategory": {}
+  },
+  "teach": {
+    "turns": 15,
+    "avgLatencyMs": 37799,
+    "maxLatencyMs": 73249
+  },
+  "probes": {
+    "total": 23,
+    "passed": 23,
+    "failed": 0,
+    "avgLatencyMs": 4488,
+    "byCategory": [
+      {
+        "category": "abstention",
+        "total": 3,
+        "passed": 3,
+        "rate": 100
+      },
+      {
+        "category": "information_extraction",
+        "total": 4,
+        "passed": 4,
+        "rate": 100
+      },
+      {
+        "category": "knowledge_update",
+        "total": 2,
+        "passed": 2,
+        "rate": 100
+      },
+      {
+        "category": "multi_session_reasoning",
+        "total": 3,
+        "passed": 3,
+        "rate": 100
+      },
+      {
+        "category": "single_session_preference",
+        "total": 6,
+        "passed": 6,
+        "rate": 100
+      },
+      {
+        "category": "single_session_user",
+        "total": 2,
+        "passed": 2,
+        "rate": 100
+      },
+      {
+        "category": "temporal_reasoning",
+        "total": 3,
+        "passed": 3,
+        "rate": 100
+      }
+    ],
+    "overallRate": 100,
+    "results": [
+      {
+        "id": "p01-team-lead",
+        "category": "information_extraction",
+        "question": "What is my team lead's name at my current job? Just the name, one line.",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Maya Patel",
+        "latencyMs": 8677
+      },
+      {
+        "id": "p02-cat-name",
+        "category": "information_extraction",
+        "question": "What's my cat's name?",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Pixel",
+        "latencyMs": 3642
+      },
+      {
+        "id": "p03-son-preschool",
+        "category": "information_extraction",
+        "question": "What preschool does my son attend?",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Sunnybrook Preschool",
+        "latencyMs": 3643
+      },
+      {
+        "id": "p04-prev-job-chain",
+        "category": "single_session_user",
+        "question": "Where did I work between Google and Anthropic?",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "DeepMind in London",
+        "latencyMs": 3947
+      },
+      {
+        "id": "p05-coffee",
+        "category": "single_session_preference",
+        "question": "What coffee do I drink? Describe in one short phrase.",
+        "verdict": "pass",
+        "reason": "matched 2/2 expected (0 anyOf)",
+        "reply": "oat milk latte",
+        "latencyMs": 3541
+      },
+      {
+        "id": "p06-allergy",
+        "category": "single_session_preference",
+        "question": "Am I allergic to anything? If yes, what?",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Yes: shellfish.",
+        "latencyMs": 3941
+      },
+      {
+        "id": "p07-languages",
+        "category": "single_session_preference",
+        "question": "What are my primary programming languages? List them.",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Rust and TypeScript",
+        "latencyMs": 6042
+      },
+      {
+        "id": "p08-editor",
+        "category": "single_session_preference",
+        "question": "What editor do I use?",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Zed",
+        "latencyMs": 3763
+      },
+      {
+        "id": "p09-car-now",
+        "category": "knowledge_update",
+        "question": "What car do I drive RIGHT NOW? One line.",
+        "verdict": "pass",
+        "reason": "matched 2/2 expected (0 anyOf)",
+        "reply": "2024 Honda Civic hybrid",
+        "latencyMs": 5665
+      },
+      {
+        "id": "p10-cache-now",
+        "category": "knowledge_update",
+        "question": "Which key-value store do we currently use on my team? One word.",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Dragonfly",
+        "latencyMs": 3979
+      },
+      {
+        "id": "p11-move-vs-job",
+        "category": "temporal_reasoning",
+        "question": "Was I already living in San Francisco when I started at Anthropic? Reply yes or no.",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Yes",
+        "latencyMs": 4464
+      },
+      {
+        "id": "p12-prior-employers",
+        "category": "multi_session_reasoning",
+        "question": "Where did I work before Anthropic and for how long at each? List company name and years.",
+        "verdict": "pass",
+        "reason": "matched 3/4 expected (0 anyOf)",
+        "reply": "Google: about 7 years  \nDeepMind: about 3.5 years  \nBluefin Labs: until June 2015",
+        "latencyMs": 4308
+      },
+      {
+        "id": "p13-glacier-team",
+        "category": "multi_session_reasoning",
+        "question": "List the people on the Glacier project team (first names are fine).",
+        "verdict": "pass",
+        "reason": "matched all 4 expected",
+        "reply": "Jin, Priya, Liam, Sara",
+        "latencyMs": 3938
+      },
+      {
+        "id": "p14-mothers-maiden",
+        "category": "abstention",
+        "question": "What is my mother's maiden name?",
+        "verdict": "pass",
+        "reason": "abstained correctly",
+        "reply": "I don’t know.",
+        "latencyMs": 3989
+      },
+      {
+        "id": "p15-high-school",
+        "category": "abstention",
+        "question": "What high school did I attend?",
+        "verdict": "pass",
+        "reason": "abstained correctly",
+        "reply": "I don’t know.",
+        "latencyMs": 5238
+      },
+      {
+        "id": "p16-deepmind-vs-noah",
+        "category": "temporal_reasoning",
+        "question": "Did I start at DeepMind before or after my son Noah was born? Answer in one word.",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "After",
+        "latencyMs": 4180
+      },
+      {
+        "id": "p17-cat-vs-move",
+        "category": "temporal_reasoning",
+        "question": "Did I adopt my cat before or after I moved to San Francisco? Answer in one word.",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Before",
+        "latencyMs": 4528
+      },
+      {
+        "id": "p18-wife-employer",
+        "category": "single_session_user",
+        "question": "Where does my wife work?",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Stripe",
+        "latencyMs": 5178
+      },
+      {
+        "id": "p19-seoul-teammate",
+        "category": "multi_session_reasoning",
+        "question": "Which of my Glacier teammates is based in Seoul? First name is fine.",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Jin",
+        "latencyMs": 3756
+      },
+      {
+        "id": "p20-vector-store",
+        "category": "information_extraction",
+        "question": "What vector store did we choose for the Glacier project? One word.",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Lance",
+        "latencyMs": 3785
+      },
+      {
+        "id": "p21-package-manager",
+        "category": "single_session_preference",
+        "question": "What JavaScript package manager do I use?",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Bun",
+        "latencyMs": 3618
+      },
+      {
+        "id": "p22-container-tool",
+        "category": "single_session_preference",
+        "question": "What container tool do I use instead of Docker Desktop?",
+        "verdict": "pass",
+        "reason": "matched 1/1 expected (0 anyOf)",
+        "reply": "Podman",
+        "latencyMs": 3606
+      },
+      {
+        "id": "p23-university",
+        "category": "abstention",
+        "question": "Which university did I attend?",
+        "verdict": "pass",
+        "reason": "abstained correctly",
+        "reply": "I don’t know.",
+        "latencyMs": 5805
+      }
+    ]
+  },
+  "criteria": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "overallRate": null,
+    "results": []
+  },
+  "diagnostics": {
+    "hiddenErrorCount": 0,
+    "hiddenErrorSignatures": [],
+    "suspect": false
+  }
+}

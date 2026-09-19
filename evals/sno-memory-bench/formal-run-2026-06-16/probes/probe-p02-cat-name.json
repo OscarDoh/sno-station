@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_5f505878-37ee-4507-b6fa-b8c1a28cb381",
+  "object": "chat.completion",
+  "created": 1781635266,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Pixel"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 83799,
+    "completion_tokens": 5,
+    "total_tokens": 83804,
+    "prompt_tokens_details": {
+      "cached_tokens": 83328
+    }
+  },
+  "_latencyMs": 3642
+}

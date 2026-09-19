@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_a2e6c552-0a9c-4df0-962e-7130944d1de3",
+  "object": "chat.completion",
+  "created": 1781635310,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Google: about 7 years  \nDeepMind: about 3.5 years  \nBluefin Labs: until June 2015"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 87358,
+    "completion_tokens": 48,
+    "total_tokens": 87406,
+    "prompt_tokens_details": {
+      "cached_tokens": 86400
+    }
+  },
+  "_latencyMs": 4308
+}

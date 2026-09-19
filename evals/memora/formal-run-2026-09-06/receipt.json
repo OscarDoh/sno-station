@@ -1,0 +1,320 @@
+{
+  "answer_window": {
+    "academic_researcher": {
+      "policy": "stated-boundary-dates/1",
+      "track": "weekly",
+      "underivable": [],
+      "windows_stated": {
+        "activity_food_coffee_158": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_food_total_158": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_steps_total_158": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_todos_158": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "goal_step_tracker_daily_steps_158_0": [
+          "2026-06-01",
+          "2026-06-07"
+        ]
+      }
+    },
+    "business_executive": {
+      "policy": "stated-boundary-dates/1",
+      "track": "weekly",
+      "underivable": [],
+      "windows_stated": {
+        "activity_food_coffee_145": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_food_total_145": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_steps_total_145": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_todos_145": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "goal_step_tracker_daily_steps_145_0": [
+          "2026-06-01",
+          "2026-06-07"
+        ]
+      }
+    },
+    "content_writer": {
+      "policy": "stated-boundary-dates/1",
+      "track": "weekly",
+      "underivable": [],
+      "windows_stated": {
+        "activity_food_coffee_151": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_food_total_151": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_steps_total_151": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_todos_151": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "goal_step_tracker_daily_steps_151_0": [
+          "2026-06-01",
+          "2026-06-07"
+        ]
+      }
+    },
+    "creative_designer": {
+      "policy": "stated-boundary-dates/1",
+      "track": "weekly",
+      "underivable": [],
+      "windows_stated": {
+        "activity_food_coffee_147": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_food_total_147": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_steps_total_147": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_todos_147": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "goal_step_tracker_daily_steps_147_0": [
+          "2026-06-01",
+          "2026-06-07"
+        ]
+      }
+    },
+    "financial_analyst": {
+      "policy": "stated-boundary-dates/1",
+      "track": "weekly",
+      "underivable": [],
+      "windows_stated": {
+        "activity_food_coffee_156": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_food_total_156": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_steps_total_156": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_todos_156": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "goal_step_tracker_daily_steps_156_0": [
+          "2026-06-01",
+          "2026-06-07"
+        ]
+      }
+    },
+    "management_consultant": {
+      "policy": "stated-boundary-dates/1",
+      "track": "weekly",
+      "underivable": [],
+      "windows_stated": {
+        "activity_food_coffee_157": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_food_total_157": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_steps_total_157": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "activity_todos_157": [
+          "2026-06-01",
+          "2026-06-07"
+        ],
+        "goal_step_tracker_daily_steps_157_0": [
+          "2026-06-01",
+          "2026-06-07"
+        ]
+      }
+    }
+  },
+  "commit": "f907de1f68300676da17141a53ade05df0f7c36d",
+  "facts": {
+    "answer_endpoint": null,
+    "answer_prompt_sha256": null,
+    "frozen_judge_band": null,
+    "judge_endpoints": [
+      "local-judge",
+      "local-judge",
+      "local-judge"
+    ],
+    "judge_stack_sha256": "afb8330537ed76d151ffaf00a1d51fe6cd0ae4220cae5305487402fda3be7503",
+    "judge_tier_config": "evals/memora/configs/tier-full-equal.json",
+    "model_names": "read from each response, never configured (evals/memora/CLAUDE.md §1)",
+    "reranker_config": null,
+    "reranker_endpoint": null
+  },
+  "out_dir": "evals/memora/results/f907de1f68300676da17141a53ade05df0f7c36d-dirty-53dd3320",
+  "personas": {
+    "academic_researcher": {
+      "answer_key_path": "evals/memora/data/weekly/academic_researcher/evaluation_questions_academic_researcher.json",
+      "question_count": 15,
+      "question_ids": [
+        "activity_food_coffee_158",
+        "activity_food_total_158",
+        "activity_steps_total_158",
+        "activity_todos_158",
+        "content_email_writeup_158_email_writeup_1",
+        "content_meeting_notes_158_meeting_notes_2",
+        "content_project_proposal_158_project_proposal_1",
+        "content_project_proposal_158_project_proposal_2",
+        "goal_food_expenses_lunch_158_1",
+        "goal_step_tracker_daily_steps_158_0",
+        "pref_books_general_158",
+        "pref_books_topics_158",
+        "pref_movies_general_158",
+        "pref_music_general_158",
+        "pref_travel_general_158"
+      ],
+      "question_set_sha256": "37b98fe45ec3b31fac1b8f609fbc55dc61b81285ba1355b7c9f94a6c596f50f4"
+    },
+    "business_executive": {
+      "answer_key_path": "evals/memora/data/weekly/business_executive/evaluation_questions_business_executive.json",
+      "question_count": 15,
+      "question_ids": [
+        "activity_calendar_145",
+        "activity_food_coffee_145",
+        "activity_food_total_145",
+        "activity_steps_total_145",
+        "activity_todos_145",
+        "content_email_writeup_145_email_writeup_1",
+        "content_email_writeup_145_email_writeup_2",
+        "content_project_proposal_145_project_proposal_1",
+        "goal_food_expenses_grocery_145_0",
+        "goal_step_tracker_daily_steps_145_0",
+        "pref_books_general_145",
+        "pref_movies_actors_145",
+        "pref_movies_general_145",
+        "pref_music_general_145",
+        "pref_travel_general_145"
+      ],
+      "question_set_sha256": "76d3a1f15c72d462f98002282835a18ca2e9c623348745e218df1ab44bcbc297"
+    },
+    "content_writer": {
+      "answer_key_path": "evals/memora/data/weekly/content_writer/evaluation_questions_content_writer.json",
+      "question_count": 15,
+      "question_ids": [
+        "activity_calendar_151",
+        "activity_food_coffee_151",
+        "activity_food_total_151",
+        "activity_steps_total_151",
+        "activity_todos_151",
+        "content_email_writeup_151_email_writeup_1",
+        "content_email_writeup_151_email_writeup_2",
+        "content_meeting_notes_151_meeting_notes_1",
+        "goal_food_expenses_coffee_151_0",
+        "goal_step_tracker_daily_steps_151_0",
+        "pref_books_general_151",
+        "pref_books_topics_151",
+        "pref_movies_general_151",
+        "pref_music_general_151",
+        "pref_travel_general_151"
+      ],
+      "question_set_sha256": "8164b7a968d2e54c2818d604845241c808d770766f5945bd5789f740c321e6d1"
+    },
+    "creative_designer": {
+      "answer_key_path": "evals/memora/data/weekly/creative_designer/evaluation_questions_creative_designer.json",
+      "question_count": 15,
+      "question_ids": [
+        "activity_food_coffee_147",
+        "activity_food_total_147",
+        "activity_steps_total_147",
+        "activity_todos_147",
+        "content_email_writeup_147_email_writeup_1",
+        "content_email_writeup_147_email_writeup_2",
+        "content_meeting_notes_147_meeting_notes_1",
+        "content_project_proposal_147_project_proposal_1",
+        "goal_food_expenses_coffee_147_0",
+        "goal_step_tracker_daily_steps_147_0",
+        "pref_books_general_147",
+        "pref_movies_actors_147",
+        "pref_movies_general_147",
+        "pref_music_artists_147",
+        "pref_music_general_147"
+      ],
+      "question_set_sha256": "37c7e4f651daa73992fd4d3ae3e418225b6238e4d8d1ce29875c874c5aad4f8e"
+    },
+    "financial_analyst": {
+      "answer_key_path": "evals/memora/data/weekly/financial_analyst/evaluation_questions_financial_analyst.json",
+      "question_count": 15,
+      "question_ids": [
+        "activity_food_coffee_156",
+        "activity_food_total_156",
+        "activity_steps_total_156",
+        "activity_todos_156",
+        "content_email_writeup_156_email_writeup_1",
+        "content_meeting_notes_156_meeting_notes_2",
+        "content_project_proposal_156_project_proposal_1",
+        "content_project_proposal_156_project_proposal_2",
+        "goal_food_expenses_lunch_156_0",
+        "goal_step_tracker_daily_steps_156_0",
+        "pref_books_authors_156",
+        "pref_books_general_156",
+        "pref_movies_general_156",
+        "pref_music_general_156",
+        "pref_travel_general_156"
+      ],
+      "question_set_sha256": "f61dbdc18cfe7e38d25f822cbf3d6f86b8ffabce33d21c04491a55f5d8d33f9c"
+    },
+    "management_consultant": {
+      "answer_key_path": "evals/memora/data/weekly/management_consultant/evaluation_questions_management_consultant.json",
+      "question_count": 15,
+      "question_ids": [
+        "activity_food_coffee_157",
+        "activity_food_total_157",
+        "activity_steps_total_157",
+        "activity_todos_157",
+        "content_email_writeup_157_email_writeup_1",
+        "content_email_writeup_157_email_writeup_2",
+        "content_meeting_notes_157_meeting_notes_1",
+        "content_project_proposal_157_project_proposal_2",
+        "goal_food_expenses_breakfast_157_0",
+        "goal_step_tracker_daily_steps_157_0",
+        "pref_books_general_157",
+        "pref_movies_directors_157",
+        "pref_movies_general_157",
+        "pref_music_general_157",
+        "pref_travel_general_157"
+      ],
+      "question_set_sha256": "bf508c5722125e5a5fae5932e2938fc2bcf6e3578f0ebd502037838ac7cae30e"
+    }
+  },
+  "schema": "memora-scoring-receipt/1",
+  "store_root": "evals/memora/run-data/stores/mem-claw-memora-eval.20260906T203716Z-2026919",
+  "written_at": "2026-09-06T21:11:25Z"
+}

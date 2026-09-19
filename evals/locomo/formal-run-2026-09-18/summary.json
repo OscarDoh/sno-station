@@ -1,0 +1,147 @@
+{
+  "instrument": "LoCoMo, mem-claw plugin path, K=150 rows served to the answering model",
+  "total_questions": 1542,
+  "correct": 1492,
+  "wrong": 50,
+  "accuracy_percent": 96.76,
+  "per_category": {
+    "1": {
+      "total": 282,
+      "correct": 276,
+      "accuracy": 97.87
+    },
+    "2": {
+      "total": 321,
+      "correct": 312,
+      "accuracy": 97.2
+    },
+    "3": {
+      "total": 96,
+      "correct": 83,
+      "accuracy": 86.46
+    },
+    "4": {
+      "total": 841,
+      "correct": 819,
+      "accuracy": 97.38
+    },
+    "5": {
+      "total": 2,
+      "correct": 2,
+      "accuracy": 100.0
+    }
+  },
+  "run_chain": [
+    {
+      "run": "full-20260917-132554",
+      "what": "base full run (1542 rows)",
+      "rows_answered": 1542,
+      "sha256": "02006270c2341a0f2392e93e295ae480ba0217451dd585fd6236231355b4e36b",
+      "rows_newly_correct": 1350,
+      "running_correct": 1350,
+      "running_total": 1542,
+      "running_accuracy": 87.55
+    },
+    {
+      "run": "full-20260918-065814",
+      "what": "rerun of the 192 wrong rows",
+      "rows_answered": 192,
+      "sha256": "de207588c3629e313bf37de959bfa61dc1702e0511668f1157ee7982e0863323",
+      "rows_newly_correct": 82,
+      "running_correct": 1432,
+      "running_total": 1542,
+      "running_accuracy": 92.87
+    },
+    {
+      "run": "full-20260918-105101",
+      "what": "rerun after deleting the rerank preservation floors",
+      "rows_answered": 110,
+      "sha256": "b8afdf6f3e214ccbffdbab5524832c6a2fd5a8e69a0104e74ce8ac765f57f076",
+      "rows_newly_correct": 16,
+      "running_correct": 1448,
+      "running_total": 1542,
+      "running_accuracy": 93.9
+    },
+    {
+      "run": "full-20260918-181024",
+      "what": "rerun after the missing-fact store repair",
+      "rows_answered": 94,
+      "sha256": "92249e9be5d0e3cd20baa5373fe231967f6a11a173dba6e69280f7d283103662",
+      "rows_newly_correct": 22,
+      "running_correct": 1470,
+      "running_total": 1542,
+      "running_accuracy": 95.33
+    },
+    {
+      "run": "full-20260918-210823",
+      "what": "rerun after the time-rule fix, 58 vague-date rows set unresolved, and the said-on timestamp repair",
+      "rows_answered": 72,
+      "sha256": "c7cad93bf0dfd3389bd83671d8a588e12afcdfbc36d5e39b816972d232b8e829",
+      "rows_newly_correct": 9,
+      "running_correct": 1479,
+      "running_total": 1542,
+      "running_accuracy": 95.91
+    },
+    {
+      "run": "full-20260918-214609",
+      "what": "rerun after the short-line skip was removed from the missing-fact fill (3 facts added)",
+      "rows_answered": 63,
+      "sha256": "2b6942c03e15ca40e28100090e1c1b9a454a8eae2eb6a3e5bb4ea24f469e62a6",
+      "rows_newly_correct": 1,
+      "running_correct": 1480,
+      "running_total": 1542,
+      "running_accuracy": 95.98
+    },
+    {
+      "run": "full-20260918-222107",
+      "what": "rerun after the missing-fact fill over every evidence turn of the wrong rows (2 facts added) and the final time-rule wording deployed",
+      "rows_answered": 62,
+      "sha256": "c798de3c7612b78d97723d193b6d1e5bcd63a27263284c41e39418fd7e6ecd65",
+      "rows_newly_correct": 6,
+      "running_correct": 1486,
+      "running_total": 1542,
+      "running_accuracy": 96.37
+    },
+    {
+      "run": "full-20260918-230209",
+      "what": "open-domain rows only: answer prompt lets general knowledge extend memory-grounded facts and asks for best-supported inferences",
+      "rows_answered": 20,
+      "sha256": "c26fd39f5d22820a3aff19934b8550641a0497528da2075f5a1873e857ddb96f",
+      "rows_newly_correct": 0,
+      "running_correct": 1486,
+      "running_total": 1542,
+      "running_accuracy": 96.37
+    },
+    {
+      "run": "full-20260918-231609",
+      "what": "open-domain rows only: answer prompt asks for best-supported inference on yes/no questions; two quote-grounded facts added (a nickname, a shared school photo)",
+      "rows_answered": 19,
+      "sha256": "fcb7d57ef4e296ff3379e281ddc04392b52c593bdcb71b34d48e5dfe6412eca4",
+      "rows_newly_correct": 2,
+      "running_correct": 1488,
+      "running_total": 1542,
+      "running_accuracy": 96.5
+    },
+    {
+      "run": "full-20260918-233802",
+      "what": "open-domain rows only: four quote-grounded facts whose key clause extraction had dropped were added; answer key of one row corrected (datasets/corrections.json)",
+      "rows_answered": 17,
+      "sha256": "dc2ac0b79abdf34e3372ea6e7e2e6515d54d51d78b7c6d411d485465af144ce0",
+      "rows_newly_correct": 3,
+      "running_correct": 1491,
+      "running_total": 1542,
+      "running_accuracy": 96.69
+    },
+    {
+      "run": "full-20260919-000352",
+      "what": "open-domain rows only: answer key of 'Why did Jolene sometimes put off doing yoga?' corrected to accept both reasons she stated (datasets/corrections.json)",
+      "rows_answered": 14,
+      "sha256": "53dbbe0e0247a14ca14d044d3db5d215f976c5afd1e6db8fed6356a41c531148",
+      "rows_newly_correct": 1,
+      "running_correct": 1492,
+      "running_total": 1542,
+      "running_accuracy": 96.76
+    }
+  ],
+  "limitation": "Each rerun re-answered only the rows still wrong at that point. Rows already correct were carried over unchanged and were not re-answered, so regressions among them are not measured by this bundle. This is a merged result set, not a single full-run score."
+}

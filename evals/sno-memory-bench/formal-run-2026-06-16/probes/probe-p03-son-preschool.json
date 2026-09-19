@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_ab635a8e-4098-4c88-a64b-c6c087fd946c",
+  "object": "chat.completion",
+  "created": 1781635270,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Sunnybrook Preschool"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 84212,
+    "completion_tokens": 7,
+    "total_tokens": 84219,
+    "prompt_tokens_details": {
+      "cached_tokens": 83328
+    }
+  },
+  "_latencyMs": 3643
+}

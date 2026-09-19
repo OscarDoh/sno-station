@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_21313377-802c-4001-8700-fed17f463f27",
+  "object": "chat.completion",
+  "created": 1781635341,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Jin"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 89840,
+    "completion_tokens": 6,
+    "total_tokens": 89846,
+    "prompt_tokens_details": {
+      "cached_tokens": 88960
+    }
+  },
+  "_latencyMs": 3756
+}

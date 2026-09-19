@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "benchmark": "Sno Memory Bench",
+  "run_date": "2026-06-16",
+  "run_identity": "bench23-r1",
+  "source_revision": "1373e684",
+  "dataset": {
+    "name": "sno-memory-bench-v1",
+    "probes": 23
+  },
+  "product_mode": "mem-claw end-to-end",
+  "metrics": {
+    "passed": 23,
+    "failed": 0,
+    "overall_percent": 100,
+    "floor_passed": 21,
+    "floor_total": 23
+  },
+  "category_scores": {
+    "abstention": "3/3",
+    "information_extraction": "4/4",
+    "knowledge_update": "2/2",
+    "multi_session_reasoning": "3/3",
+    "single_session_preference": "6/6",
+    "single_session_user": "2/2",
+    "temporal_reasoning": "3/3"
+  },
+  "limitations": [
+    "First-party corpus; not an independent benchmark.",
+    "One probe was historically intermittent, so the formal floor allows two failures."
+  ],
+  "source_artifact": {
+    "sha256": "84dd4bf92f89a804a0bb0c7d4369d0892630ae722d9a1705340c89bb6a683613"
+  },
+  "public_evidence": {
+    "path": "formal-run-2026-06-16/",
+    "probe_results": 23,
+    "raw_probe_responses": 23,
+    "sanitization": "The machine-local corpus path is repository-relative; evaluation content and scores are unchanged."
+  }
+}

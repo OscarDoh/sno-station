@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_890f0bf6-b08c-4f43-b68a-4161d6966f01",
+  "object": "chat.completion",
+  "created": 1781635318,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "I don’t know."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 88062,
+    "completion_tokens": 26,
+    "total_tokens": 88088,
+    "prompt_tokens_details": {
+      "cached_tokens": 87424
+    }
+  },
+  "_latencyMs": 3989
+}

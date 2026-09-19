@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_07b9254b-ca08-46da-8ae1-cd3eb7e54b75",
+  "object": "chat.completion",
+  "created": 1781635314,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Jin, Priya, Liam, Sara"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 87722,
+    "completion_tokens": 28,
+    "total_tokens": 87750,
+    "prompt_tokens_details": {
+      "cached_tokens": 86912
+    }
+  },
+  "_latencyMs": 3938
+}

@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_f049c4a2-2975-4758-b726-d1222de7c4fa",
+  "object": "chat.completion",
+  "created": 1781635301,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Dragonfly"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 86582,
+    "completion_tokens": 20,
+    "total_tokens": 86602,
+    "prompt_tokens_details": {
+      "cached_tokens": 85888
+    }
+  },
+  "_latencyMs": 3979
+}

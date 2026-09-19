@@ -1,0 +1,129 @@
+{
+  "adapter_sha256": "bac157c494f74646e25b960fdc301bba737ca19c70c426c39aa38eb95c404675",
+  "answer_prompt_sha256": "54fc306425cf13c30385d1165989b007e7513131b0499d81f344b566da12f2a3",
+  "commit_sha": "f907de1f68300676da17141a53ade05df0f7c36d",
+  "completed_at": "2026-09-07T01:14:58Z",
+  "dataset_sha256": "2faac07ace37b472078d389d43c424f87e193a889102a77276027b4ee758ab5f",
+  "dirty_diff_sha256": "53dd3320ae3dd6613770e2571840beb50dc65f3aa23de4da246928ace3107f78",
+  "dirty_tree": true,
+  "judge_prompt_sha256": "fa6a01aedbe5f2e180800b920c9d8297cad6e23444e08a435e282cc65d52a5fc",
+  "judge_slots": [
+    {
+      "endpoint": "local-judge",
+      "prompt_sha256": "58e2401e603fe93db9a968c17bba464d9317d9fa3e9ae49814076ad25f377c82",
+      "prompt_template": "strict",
+      "slot": "strict",
+      "transport": "openai_chat"
+    },
+    {
+      "endpoint": "local-judge",
+      "prompt_sha256": "fa6a01aedbe5f2e180800b920c9d8297cad6e23444e08a435e282cc65d52a5fc",
+      "prompt_template": "neutral",
+      "slot": "neutral",
+      "transport": "openai_chat"
+    },
+    {
+      "endpoint": "local-judge",
+      "prompt_sha256": "75091fab36bceb87519b03e8f56952f8774699839039ba0e714e337e2c275158",
+      "prompt_template": "lenient",
+      "slot": "lenient",
+      "transport": "openai_chat"
+    }
+  ],
+  "judge_stack_sha256": "0d6709abc18c615cde52a423e1dd42587781d313b0ade9d49c7166a5546d5c7d",
+  "judge_temperature": "server-default",
+  "lambda": "paper-per-question",
+  "n_runs": 1,
+  "part2_budget_seconds": 9000,
+  "questions_per_persona": "all",
+  "raw_output_source": "raw-judgments",
+  "reference_system_configs": {},
+  "rem": {
+    "mode": "on",
+    "rev": "f907de1f68300676da17141a53ade05df0f7c36d",
+    "sno_edge_rem": "1",
+    "types": [
+      "rem-update",
+      "rem-replace"
+    ],
+    "verified_types": [
+      "rem-update",
+      "rem-replace"
+    ]
+  },
+  "runner_completed_at": "2026-09-07T01:14:58Z",
+  "runner_elapsed_seconds": 16662,
+  "runner_started_at": "2026-09-06T20:37:16Z",
+  "sidecar_log_level": "info",
+  "started_at": "2026-09-06T21:11:25Z",
+  "store_cache": {
+    "archive": "",
+    "hot": false,
+    "key": "",
+    "manifest": "",
+    "saved": false,
+    "selector": "",
+    "server_root": "evals/memora/run-data/stores/mem-claw-memora-eval.20260906T203716Z-2026919",
+    "server_root_wiped": false,
+    "status": "disabled-rem"
+  },
+  "tier": "full-equal",
+  "totals": {
+    "FAA_mean": 0.8334342211460855,
+    "MPA_mean": 0.909567901234568,
+    "n_excluded_faa": 31,
+    "n_excluded_mpa": 0,
+    "n_total": 90,
+    "personas": [
+      {
+        "FAA_mean": 0.9375,
+        "MPA_mean": 0.9466666666666667,
+        "n": 15,
+        "n_excluded_faa": 5,
+        "n_excluded_mpa": 0,
+        "persona": "academic_researcher"
+      },
+      {
+        "FAA_mean": 0.7666666666666667,
+        "MPA_mean": 0.8537037037037037,
+        "n": 15,
+        "n_excluded_faa": 5,
+        "n_excluded_mpa": 0,
+        "persona": "business_executive"
+      },
+      {
+        "FAA_mean": 0.8714285714285713,
+        "MPA_mean": 0.9666666666666667,
+        "n": 15,
+        "n_excluded_faa": 5,
+        "n_excluded_mpa": 0,
+        "persona": "content_writer"
+      },
+      {
+        "FAA_mean": 0.725,
+        "MPA_mean": 0.9088888888888889,
+        "n": 15,
+        "n_excluded_faa": 5,
+        "n_excluded_mpa": 0,
+        "persona": "creative_designer"
+      },
+      {
+        "FAA_mean": 0.8888888888888888,
+        "MPA_mean": 0.8248148148148148,
+        "n": 15,
+        "n_excluded_faa": 6,
+        "n_excluded_mpa": 0,
+        "persona": "financial_analyst"
+      },
+      {
+        "FAA_mean": 0.8166666666666667,
+        "MPA_mean": 0.9566666666666667,
+        "n": 15,
+        "n_excluded_faa": 5,
+        "n_excluded_mpa": 0,
+        "persona": "management_consultant"
+      }
+    ]
+  },
+  "track": "weekly"
+}

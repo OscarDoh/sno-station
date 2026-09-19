@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_caeb8958-65fd-4ba1-a798-3639a2590296",
+  "object": "chat.completion",
+  "created": 1781635349,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Bun"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 90515,
+    "completion_tokens": 6,
+    "total_tokens": 90521,
+    "prompt_tokens_details": {
+      "cached_tokens": 89984
+    }
+  },
+  "_latencyMs": 3618
+}

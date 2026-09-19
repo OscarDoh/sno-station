@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl_15a44818-2045-4139-8963-88cda10b9713",
+  "object": "chat.completion",
+  "created": 1781635291,
+  "model": "openclaw",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Zed"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 85901,
+    "completion_tokens": 6,
+    "total_tokens": 85907,
+    "prompt_tokens_details": {
+      "cached_tokens": 85376
+    }
+  },
+  "_latencyMs": 3763
+}

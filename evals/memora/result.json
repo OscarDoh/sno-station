@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "benchmark": "Memora",
+  "run_date": "2026-09-06",
+  "run_identity": "f907de1f68300676da17141a53ade05df0f7c36d-dirty-53dd3320",
+  "source_revision": "f907de1f68300676da17141a53ade05df0f7c36d",
+  "dataset": {
+    "track": "weekly",
+    "personas": 6,
+    "questions_per_persona": 15,
+    "questions": 90
+  },
+  "product_mode": "full-equal",
+  "metrics": {
+    "fama": 87.2,
+    "fama_remember": 77.4,
+    "fama_recommend": 90.9,
+    "fama_reason": 93.3,
+    "mpa": 0.9096,
+    "faa": 0.8334,
+    "forgetting_penalty_points": 3.76
+  },
+  "adjudication": {
+    "adopted_by_owner": true,
+    "adopted_date": "2026-09-06"
+  },
+  "limitations": [
+    "The source run was recorded from a dirty working tree.",
+    "Cross-system figures in the root README use different judge stacks and are directional."
+  ],
+  "source_artifacts": {
+    "provenance_sha256": "ae2b2ab103bfd60c7b2f75e00eda66092b6e97021c5aed47571fdd512b8ea80c",
+    "receipt_sha256": "523003f048f374b710debaf29d7d195628dd04ccfc3d24561d7d4a33c36f8249"
+  },
+  "public_evidence": {
+    "path": "formal-run-2026-09-06/",
+    "answers_and_judgments": 90,
+    "traces": 90,
+    "sanitization": "Machine-local absolute paths are repository-relative and loopback judge URLs are labeled local-judge; evaluation content and scores are unchanged."
+  }
+}
