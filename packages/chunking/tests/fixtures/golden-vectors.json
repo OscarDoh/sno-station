@@ -1,0 +1,311 @@
+{
+	"version": 1,
+	"tokenizerMode": "char-approximation",
+	"tokenizer": [
+		{
+			"name": "cjk",
+			"input": "你好世界こんにちは",
+			"expectedTokens": 8
+		},
+		{
+			"name": "mixed-script",
+			"input": "Hello 世界 123!",
+			"expectedTokens": 6
+		}
+	],
+	"chunk": [
+		{
+			"name": "prose",
+			"input": "Alpha has a short searchable fact. Beta adds another searchable fact.",
+			"memoryId": "gold-prose",
+			"config": {
+				"contentType": "prose"
+			},
+			"expectedChunks": [
+				{
+					"chunkId": "",
+					"memoryId": "gold-prose",
+					"chunkIndex": 0,
+					"chunkText": "Alpha has a short searchable fact. Beta adds another searchable fact.",
+					"densePayload": "",
+					"startOffset": 0,
+					"endOffset": 69,
+					"tokenCount": 23,
+					"contentType": "prose",
+					"chunkingVersion": "1.1.0"
+				}
+			]
+		},
+		{
+			"name": "conversation",
+			"input": "[2026-06-30T10:00:00Z] Alice: The launch checklist is ready.\n[2026-06-30T10:01:00Z] Bob: I will verify the database backup.",
+			"memoryId": "gold-conversation",
+			"config": {
+				"contentType": "conversation"
+			},
+			"expectedChunks": [
+				{
+					"chunkId": "",
+					"memoryId": "gold-conversation",
+					"chunkIndex": 0,
+					"chunkText": "[2026-06-30T10:00:00Z] Alice: The launch checklist is ready.\n[2026-06-30T10:01:00Z] Bob: I will verify the database backup.",
+					"densePayload": "",
+					"startOffset": 0,
+					"endOffset": 123,
+					"tokenCount": 41,
+					"contentType": "conversation",
+					"chunkingVersion": "1.1.0"
+				}
+			]
+		},
+		{
+			"name": "oversized-turn",
+			"input": "[2026-06-30T10:02:00Z] Alice: important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact ",
+			"memoryId": "gold-oversized-turn",
+			"config": {
+				"contentType": "conversation",
+				"minTokens": 8,
+				"targetTokens": 16,
+				"maxTokens": 24,
+				"overlapTokens": 0
+			},
+			"expectedChunks": [
+				{
+					"chunkId": "",
+					"memoryId": "gold-oversized-turn",
+					"chunkIndex": 0,
+					"chunkText": "[2026-06-30T10:02:00Z] Alice: important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact important fact ",
+					"densePayload": "",
+					"startOffset": 0,
+					"endOffset": 630,
+					"tokenCount": 210,
+					"contentType": "conversation",
+					"chunkingVersion": "1.1.0",
+					"flags": [
+						"oversized"
+					]
+				}
+			]
+		}
+	],
+	"structured": [
+		{
+			"name": "structured",
+			"input": {
+				"zeta": "tail value",
+				"alpha": "你好世界 mixed-script value",
+				"items": [
+					"first",
+					"second"
+				]
+			},
+			"memoryId": "gold-structured",
+			"config": {
+				"minTokens": 1,
+				"targetTokens": 10,
+				"maxTokens": 20,
+				"overlapTokens": 0
+			},
+			"expectedChunks": [
+				{
+					"chunkId": "",
+					"memoryId": "gold-structured",
+					"chunkIndex": 0,
+					"chunkText": "$.alpha: \"你好世界 mixed-script value\"",
+					"densePayload": "",
+					"structuredPaths": [
+						"$.alpha"
+					],
+					"startOffset": 0,
+					"endOffset": 34,
+					"tokenCount": 14,
+					"contentType": "structured",
+					"chunkingVersion": "1.1.0"
+				},
+				{
+					"chunkId": "",
+					"memoryId": "gold-structured",
+					"chunkIndex": 1,
+					"chunkText": "$.items[0]: \"first\"\n$.items[1]: \"second\"",
+					"densePayload": "",
+					"structuredPaths": [
+						"$.items[0]",
+						"$.items[1]"
+					],
+					"startOffset": 35,
+					"endOffset": 75,
+					"tokenCount": 14,
+					"contentType": "structured",
+					"chunkingVersion": "1.1.0"
+				},
+				{
+					"chunkId": "",
+					"memoryId": "gold-structured",
+					"chunkIndex": 2,
+					"chunkText": "$.zeta: \"tail value\"",
+					"densePayload": "",
+					"structuredPaths": [
+						"$.zeta"
+					],
+					"startOffset": 76,
+					"endOffset": 96,
+					"tokenCount": 7,
+					"contentType": "structured",
+					"chunkingVersion": "1.1.0"
+				}
+			]
+		}
+	],
+	"attachment": [
+		{
+			"name": "attachment",
+			"input": {
+				"content": "INFO boot complete\nERROR failed to open database\nTRACE retry scheduled",
+				"filename": "server.log",
+				"mediaType": "text/plain",
+				"routeReasons": [
+					"log-shape"
+				]
+			},
+			"expected": {
+				"route": "attachment",
+				"attachmentId": "att_921d56f2231c6c5c81bdf2008252dd9e",
+				"raw": {
+					"content": "INFO boot complete\nERROR failed to open database\nTRACE retry scheduled",
+					"filename": "server.log",
+					"mediaType": "text/plain"
+				},
+				"handle": {
+					"attachmentId": "att_921d56f2231c6c5c81bdf2008252dd9e",
+					"vectors": [
+						{
+							"kind": "summary",
+							"text": "Attachment handle for server.log: INFO boot complete / ERROR failed to open database / TRACE retry scheduled",
+							"source": "deterministic-auto-extract",
+							"tags": [
+								"route:attachment",
+								"filename:server.log",
+								"extension:log",
+								"mediaType:text/plain",
+								"reason:log-shape"
+							]
+						},
+						{
+							"kind": "tags",
+							"text": "route:attachment filename:server.log extension:log mediaType:text/plain reason:log-shape",
+							"source": "metadata",
+							"tags": [
+								"route:attachment",
+								"filename:server.log",
+								"extension:log",
+								"mediaType:text/plain",
+								"reason:log-shape"
+							]
+						},
+						{
+							"kind": "filename",
+							"text": "server.log",
+							"source": "metadata",
+							"tags": [
+								"route:attachment",
+								"filename:server.log",
+								"extension:log",
+								"mediaType:text/plain",
+								"reason:log-shape"
+							]
+						},
+						{
+							"kind": "type",
+							"text": "text/plain",
+							"source": "metadata",
+							"tags": [
+								"route:attachment",
+								"filename:server.log",
+								"extension:log",
+								"mediaType:text/plain",
+								"reason:log-shape"
+							]
+						}
+					],
+					"summaryInput": {
+						"text": "INFO boot complete\nERROR failed to open database\nTRACE retry scheduled",
+						"tokenCount": 24,
+						"capTokens": 2048,
+						"wasTruncated": false,
+						"strategy": "head-tail"
+					}
+				}
+			}
+		},
+		{
+			"name": "summary-handle",
+			"input": {
+				"content": "raw diagnostic payload",
+				"consumerSummary": "Diagnostic payload showing a failed startup check."
+			},
+			"expected": {
+				"route": "attachment",
+				"attachmentId": "att_e37490e71023b24cf1dd2fe8dece0a0c",
+				"raw": {
+					"content": "raw diagnostic payload"
+				},
+				"handle": {
+					"attachmentId": "att_e37490e71023b24cf1dd2fe8dece0a0c",
+					"vectors": [
+						{
+							"kind": "summary",
+							"text": "Diagnostic payload showing a failed startup check.",
+							"source": "consumer-llm",
+							"tags": [
+								"route:attachment"
+							]
+						},
+						{
+							"kind": "tags",
+							"text": "route:attachment",
+							"source": "metadata",
+							"tags": [
+								"route:attachment"
+							]
+						}
+					],
+					"summaryInput": {
+						"text": "raw diagnostic payload",
+						"tokenCount": 8,
+						"capTokens": 2048,
+						"wasTruncated": false,
+						"strategy": "head-tail"
+					}
+				}
+			}
+		}
+	],
+	"route": [
+		{
+			"name": "heuristic-log",
+			"input": {
+				"content": "2026-06-30T10:00:00Z ERROR worker failed\n2026-06-30T10:00:01Z ERROR worker failed\n2026-06-30T10:00:02Z ERROR worker failed\n2026-06-30T10:00:03Z ERROR worker failed\n2026-06-30T10:00:04Z ERROR worker failed\n2026-06-30T10:00:05Z ERROR worker failed\n2026-06-30T10:00:06Z ERROR worker failed\n2026-06-30T10:00:07Z ERROR worker failed\n2026-06-30T10:00:08Z ERROR worker failed\n2026-06-30T10:00:09Z ERROR worker failed\n2026-06-30T10:00:10Z ERROR worker failed\n2026-06-30T10:00:11Z ERROR worker failed\n2026-06-30T10:00:12Z ERROR worker failed\n2026-06-30T10:00:13Z ERROR worker failed\n2026-06-30T10:00:14Z ERROR worker failed\n2026-06-30T10:00:15Z ERROR worker failed\n2026-06-30T10:00:16Z ERROR worker failed\n2026-06-30T10:00:17Z ERROR worker failed\n2026-06-30T10:00:18Z ERROR worker failed\n2026-06-30T10:00:19Z ERROR worker failed"
+			},
+			"expected": {
+				"route": "attachment",
+				"decisionSource": "heuristic",
+				"reasons": [
+					"clear-log-dump-shell-shape"
+				]
+			}
+		},
+		{
+			"name": "code-as-attachment",
+			"input": {
+				"content": "export function alpha() {}\nexport const beta = 1;\nclass Gamma {}\ninterface Delta {}\ntype Epsilon = string;\nconst zeta = true;"
+			},
+			"expected": {
+				"route": "attachment",
+				"decisionSource": "heuristic",
+				"reasons": [
+					"clear-code-shape"
+				]
+			}
+		}
+	]
+}

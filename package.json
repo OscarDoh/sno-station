@@ -1,0 +1,16 @@
+{
+	"name": "sno-station",
+	"private": true,
+	"license": "Apache-2.0",
+	"packageManager": "npm@11.9.0",
+	"engines": {
+		"node": ">=24.15.0 <25"
+	},
+	"scripts": {
+		"build": "npm --prefix packages/chunking run build",
+		"typecheck": "npm --prefix packages/chunking run typecheck",
+		"lint": "npm --prefix packages/chunking run lint",
+		"test": "npm --prefix packages/chunking test"
+	}
+}
+

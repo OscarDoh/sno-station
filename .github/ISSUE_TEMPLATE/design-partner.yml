@@ -1,0 +1,28 @@
+name: Design partner
+description: Tell us how you use Claude Code and Codex together.
+title: "[Design partner] "
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping us build Sno Station in public. Do not include credentials or private data.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Current workflow
+      description: How do you move work or context between Claude Code and Codex today?
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: Biggest friction
+      description: What breaks, gets lost, or takes repeated manual work?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system and the tools you use. Do not include secrets.
+    validations:
+      required: true

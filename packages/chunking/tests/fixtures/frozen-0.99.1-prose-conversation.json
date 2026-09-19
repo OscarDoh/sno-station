@@ -1,0 +1,101 @@
+{
+	"source": {
+		"package": "@snoai/chunking",
+		"version": "0.99.1",
+		"command": "tmpdir=\"$(mktemp -d /tmp/chunking-0991-install-XXXXXX)\" && cd \"$tmpdir\" && npm init -y && npm install @snoai/chunking@0.99.1 --ignore-scripts --no-audit --no-fund && node --input-type=module <snapshot generator>"
+	},
+	"cases": [
+		{
+			"name": "prose-default-multiparagraph",
+			"memoryId": "snapshot-prose",
+			"config": {
+				"contentType": "prose"
+			},
+			"input": "Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n\nBeta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n\nGamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow.",
+			"expectedChunks": [
+				{
+					"chunkId": "",
+					"memoryId": "snapshot-prose",
+					"chunkIndex": 0,
+					"chunkText": "Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Alpha: The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n\n",
+					"densePayload": "",
+					"startOffset": 0,
+					"endOffset": 973,
+					"tokenCount": 325,
+					"contentType": "prose",
+					"chunkingVersion": "1.1.0"
+				},
+				{
+					"chunkId": "",
+					"memoryId": "snapshot-prose",
+					"chunkIndex": 1,
+					"chunkText": "Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Beta: The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n\n",
+					"densePayload": "",
+					"startOffset": 973,
+					"endOffset": 1934,
+					"tokenCount": 321,
+					"contentType": "prose",
+					"chunkingVersion": "1.1.0"
+				},
+				{
+					"chunkId": "",
+					"memoryId": "snapshot-prose",
+					"chunkIndex": 2,
+					"chunkText": "Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow. Gamma: The quick brown fox jumps over the lazy dog repeatedly across the meadow.",
+					"densePayload": "",
+					"startOffset": 1934,
+					"endOffset": 2905,
+					"tokenCount": 324,
+					"contentType": "prose",
+					"chunkingVersion": "1.1.0"
+				}
+			]
+		},
+		{
+			"name": "conversation-default-turns",
+			"memoryId": "snapshot-conversation",
+			"config": {
+				"contentType": "conversation"
+			},
+			"input": "[2026-04-28T10:00:00Z] Alice: Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n[2026-04-28T10:01:00Z] Bob: Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n[2026-04-28T10:02:00Z] Alice: Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n[2026-04-28T10:03:00Z] Bob: Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n[2026-04-28T10:04:00Z] Alice: Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow.",
+			"expectedChunks": [
+				{
+					"chunkId": "",
+					"memoryId": "snapshot-conversation",
+					"chunkIndex": 0,
+					"chunkText": "[2026-04-28T10:00:00Z] Alice: Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step zero starts here. The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n[2026-04-28T10:01:00Z] Bob: Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step one continues now. The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n",
+					"densePayload": "",
+					"startOffset": 0,
+					"endOffset": 1033,
+					"tokenCount": 345,
+					"contentType": "conversation",
+					"chunkingVersion": "1.1.0"
+				},
+				{
+					"chunkId": "",
+					"memoryId": "snapshot-conversation",
+					"chunkIndex": 1,
+					"chunkText": "[2026-04-28T10:02:00Z] Alice: Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step two arrives soon. The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n[2026-04-28T10:03:00Z] Bob: Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step three is rolling. The quick brown fox jumps over the lazy dog repeatedly across the meadow.\n",
+					"densePayload": "",
+					"startOffset": 1033,
+					"endOffset": 2061,
+					"tokenCount": 343,
+					"contentType": "conversation",
+					"chunkingVersion": "1.1.0"
+				},
+				{
+					"chunkId": "",
+					"memoryId": "snapshot-conversation",
+					"chunkIndex": 2,
+					"chunkText": "[2026-04-28T10:04:00Z] Alice: Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow. Step four wraps it up. The quick brown fox jumps over the lazy dog repeatedly across the meadow.",
+					"densePayload": "",
+					"startOffset": 2061,
+					"endOffset": 2575,
+					"tokenCount": 172,
+					"contentType": "conversation",
+					"chunkingVersion": "1.1.0"
+				}
+			]
+		}
+	]
+}

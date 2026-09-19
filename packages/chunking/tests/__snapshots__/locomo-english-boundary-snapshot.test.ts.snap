@@ -1,0 +1,8 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`LoCoMo English boundary snapshot > chunk hashes on conv-26 session_3 don't drift 1`] = `
+{
+  "count": 5,
+  "fingerprint": "6b60fdc4a6870ef0,9f7cc5698e25f677,1818cd6793277652,ee4c2a7e5d0f517d,6ffe0f122ad2c37d",
+}
+`;

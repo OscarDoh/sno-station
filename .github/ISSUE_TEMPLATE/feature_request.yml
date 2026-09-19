@@ -1,0 +1,34 @@
+name: Feature request
+description: Something the squad should do and does not yet.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What do you do by hand today that the squad should do for you?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to see
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - memory
+        - Reach (agent messaging)
+        - squad skills (handoff, review, work orders)
+        - the nightly loop
+        - install / onboarding
+        - docs
+        - other
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead

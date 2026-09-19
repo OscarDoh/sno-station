@@ -1,0 +1,8 @@
+# Default owner for everything in this repository.
+*        @LarHope
+
+# Public-facing words and pictures.
+/README.md            @LarHope
+/docs/                @LarHope
+/VISION.md            @LarHope
+/.github/             @LarHope
