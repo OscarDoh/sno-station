@@ -1,0 +1,34 @@
+#!/bin/sh
+# mencrypt PLAINMSG - generate a PGP/MIME signed and encrypted message
+
+[ -f "$1" ] || exit 1
+
+IFS='
+'
+FLAGS=$(maddr -a -h from:to:cc:bcc: "$1" |sort -u |sed 's/^/--recipient=/')
+
+FROM=$(maddr -a -h from "$1" | sed 1q)
+[ "$FROM" ] && key="--default-key=$FROM"
+
+if command -v gpg2 >/dev/null; then
+	GPG=gpg2
+else
+	GPG=gpg
+fi
+
+TMPD=$(mktemp -d -t mencrypt.XXXXXX)
+trap "rm -rf '$TMPD'" INT TERM EXIT
+
+awk '/^$/,0' "$1" |
+	mmime |
+	$GPG "$key" --armor --encrypt --sign $FLAGS -o "$TMPD/msg.asc" ||
+	exit $?
+
+printf 'Version: 1\n' >"$TMPD/version"
+
+{
+	sed '/^$/q' "$1"
+	printf '#application/pgp-encrypted %s/version\n' "$TMPD"
+	printf '#application/octet-stream %s/msg.asc\n' "$TMPD"
+} |
+	mmime -t 'multipart/encrypted; protocol="application/pgp-encrypted"'

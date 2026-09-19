@@ -1,0 +1,590 @@
+#!/bin/sh
+# mcom [TO] - compose mail
+
+NL='
+'
+
+commajoin() {
+	awk 'NR==1 {l=$0; next}
+	     {l=l", "$0}
+	     END {print l}'
+}
+
+notmine() {
+	mine="$(maddr -a -h local-mailbox:alternate-mailboxes: "$MBLAZE/profile")"
+	grep -Fv -e "$mine"
+}
+
+replyfrom() {
+	addrs="$(maddr -a -h reply-from: "$MBLAZE/profile")"
+	[ -z "$addrs" ] && addrs="$(maddr -a -h alternate-mailboxes: "$MBLAZE/profile")"
+	grep -F -e "$addrs"
+}
+
+ouniq() {
+	awk '!seen[$0]++'
+}
+
+reffmt() {
+	sed 's/^[^<]*//g;s/[^>]*$//g;s/>[^<]*</>\
+</g' | uniq | sed 's/^/ /'
+}
+
+msgid() {
+	mgenmid 2>/dev/null | sed 's/^/Message-Id: /'
+}
+
+stampdate() {
+	if ! mhdr -h date "$1" >/dev/null; then
+		tmp=$(mktemp -t mcom.XXXXXX)
+		{
+			printf 'Date: '
+			mdate
+			cat "$1"		
+		} >"$tmp" &&
+		mv "$tmp" "$1"
+	fi
+}
+
+checksensible() {
+	awk '
+		/^$/ {
+			seenheader=1
+			exit
+		}
+		!(/^[^ \t][^ \t]*[ \t]*:/ || /^[ \t]/) {
+			bad=1
+			print "invalid header line: "$0 >"/dev/stderr"
+		}
+		END {
+			if (!seenheader) {
+				print "warning: message does not contain an empty line between headers and body." >"/dev/stderr"
+				exit 1
+			}
+			if (bad)
+				exit 1
+		}
+' "$1"
+}
+
+stripempty() {
+	tmp=$(mktemp -t mcom.XXXXXX)
+	msed 's/^[ \t]*$//d' "$1" >"$tmp"
+	mv "$tmp" "$1"
+}
+
+needs_multipart() {
+	mhdr -h attach "$1" >/dev/null ||
+		grep -qE '^#[a-zA-Z]+/[a-zA-Z0-9+.;=#-]+ ' "$1"
+}
+
+do_mime() {
+	if needs_multipart "$draft"; then
+		(
+			IFS=$NL
+			msed '/attach/d' "$draft"
+			for f in $(mhdr -M -h attach "$draft"); do
+				printf '#%s %s\n' \
+				       "$(file -Lb --mime -- "$f" | sed 's/ //g')" \
+				       "$f"
+			done
+		) | mmime >"$draftmime"
+	else
+		mmime -r <"$draft" >"$draftmime"
+	fi
+	if [ $? -ne 0 ]; then
+ 	     	printf 'mcom: fix above errors before continuing\n' 1>&2
+		rm -f "$draftmime"
+	fi
+}
+
+MBLAZE=${MBLAZE:-$HOME/.mblaze}
+
+sendmail=$(mhdr -h sendmail "$MBLAZE/profile")
+sendmail_args=$(mhdr -h sendmail-args "$MBLAZE/profile")
+sendmail="${sendmail:-sendmail} ${sendmail_args:--t}"
+editor=$(mhdr -h editor "$MBLAZE/profile")
+editor="${MBLAZE_EDITOR:-${editor:-${VISUAL:-${EDITOR:-vi}}}}"
+default_from=$(mhdr -h local-mailbox "$MBLAZE/profile")
+senthook=$(mhdr -h senthook "$MBLAZE/profile")
+
+defaultc=e
+
+hdrs=
+resume=
+noquote=
+case "$0" in
+*mcom*)
+	hdr=to
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--)
+			# -- is like -to, really
+			shift
+			hdr=to
+			;;
+		-r)
+			shift
+			resume=1
+			if [ "$#" -gt 0 ]; then
+				case "$1" in
+					/*|./*) draft="$1";;
+					*) draft="./$1";;
+				esac
+				if ! [ -f "$draft" ]; then
+					printf 'mcom: no such draft %s\n' \
+					       "$draft" 1>&2
+					exit 1
+				fi
+				echo "using draft $draft"
+				shift
+			fi
+			;;
+		-send)
+			defaultc=justsend
+			shift;;
+		-??*)
+			hdr=${1#-}
+			shift;;
+		[!-]*)
+			hdrs="$hdrs$NL$(printf '%s: %s\n' "${hdr}" "$1")"
+			shift;;
+		*)
+			printf 'mcom: invalid argument %s\n' "$1" 1>&2
+			exit 1;;
+		esac
+	done
+	;;
+*mfwd*)
+	hdr=
+	raw=
+ 	while [ $# -gt 0 ]; do
+		case "$1" in
+		--)
+			shift
+			break;;
+		-r)
+			shift
+			raw=1;;
+		-send)
+			defaultc=justsend
+			shift;;
+		-??*)
+			hdr=${1#-}
+			shift;;
+		[!-]*)
+			[ -z "$hdr" ] && break
+			hdrs="$hdrs$NL$(printf '%s: %s\n' "${hdr}" "$1")"
+			shift;;
+		*)
+			printf 'mfwd: invalid argument %s\n' "$1" 1>&2
+			exit 1;;
+		esac
+	done
+	[ "$#" -eq 0 ] && set -- .
+	;;
+*mbnc*)
+	hdr=
+ 	while [ $# -gt 0 ]; do
+		case "$1" in
+		--)
+			shift
+			break;;
+		-send)
+			defaultc=justsend
+			shift;;
+		-??*)
+			hdr=${1#-}
+			shift;;
+		[!-]*)
+			[ -z "$hdr" ] && break
+			hdrs="$hdrs$NL$(printf '%s: %s\n' "${hdr}" "$1")"
+			shift;;
+		*)
+			printf 'mbnc: invalid argument %s\n' "$1" 1>&2
+			exit 1;;
+		esac
+	done
+	[ "$#" -eq 0 ] && set -- .
+	;;
+*mrep*)
+	hdr=
+ 	while [ $# -gt 0 ]; do
+		case "$1" in
+		--)
+			shift
+			break;;
+		-send)
+			defaultc=justsend
+			shift;;
+		-noquote)
+			noquote=1
+			shift;;
+		-??*)
+			hdr=${1#-}
+			shift;;
+		[!-]*)
+			[ -z "$hdr" ] && break
+			hdrs="$hdrs$NL$(printf '%s: %s\n' "${hdr}" "$1")"
+			shift;;
+		*)
+			printf 'mrep: invalid argument %s\n' "$1" 1>&2
+			exit 1;;
+		esac
+	done
+	[ "$#" -eq 0 ] && set -- .
+	;;
+esac
+
+hdrs="$(printf '%s\n' "${hdrs#$NL}" | mhdr -)"
+
+outbox=$(mhdr -h outbox "$MBLAZE/profile" | sed "s:^~/:$HOME/:")
+draftbox=$(mhdr -h drafts "$MBLAZE/profile" | sed "s:^~/:$HOME/:")
+draftbox="${draftbox:-$outbox}"
+if [ -z "$draftbox" ]; then
+	if [ -z "$resume" ]; then
+		i=0
+		while [ -f "snd.$i" ]; do
+			i=$((i+1))
+		done
+		draft="./snd.$i"
+	elif [ -z "$draft" ]; then
+		draft=$(ls -1t ./snd.*[0-9] | sed 1q)
+	fi
+	draftmime="$draft.mime"
+else
+	if [ -z "$resume" ]; then
+		draft="$(true | mdeliver -v -c -XD "$draftbox")"
+		if [ -z "$draft" ]; then
+			printf '%s\n' "$0: failed to create draft in outbox $draftbox." 1>&2
+			exit 1
+		fi
+	elif [ -z "$draft" ]; then
+		draft=$(mlist -D "$draftbox" | msort -r -M | sed 1q)
+	fi
+	draftmime="$(printf '%s\n' "$draft" | sed 's,\(.*\)/cur/,\1/tmp/mime-,')"
+	if [ "$draft" = "$draftmime" ]; then
+		draftmime=$(mktemp -t mcom.XXXXXX)
+	fi
+fi
+
+if [ -n "$resume" ] && [ -z "$draft" ]; then
+	echo "mcom: no draft found"
+	exit 1
+fi
+
+[ -z "$resume" ] &&
+{
+	case "$0" in
+	*mcom*)
+		{
+			printf '%s' "$hdrs" | mhdr -M -h to - |
+				commajoin | sed 's/^/To: /'
+			printf '%s' "$hdrs" | mhdr -M -h cc - |
+				commajoin | sed 's/^/Cc: /'
+			printf '%s' "$hdrs" | mhdr -M -h bcc - |
+				commajoin | sed 's/^/Bcc: /'
+			printf '%s\n' "$hdrs" | awk '{ print }' |
+				msed "/to/d; /cc/d; /bcc/d; /body/d" -
+		} | msed "/cc/a//; /bcc/a//; /subject/a//; /from/a/$default_from/" - | sed '/^$/d'
+		msgid
+		museragent
+		cat "$MBLAZE/headers" 2>/dev/null
+		printf '\n'
+		(
+			IFS=$NL
+			cat -- /dev/null $(printf '%s' "$hdrs" | mhdr -M -h body -)
+		)
+		printf '\n'
+		;;
+	*mfwd*)
+		{
+			printf '%s' "$hdrs" | mhdr -M -h to - |
+				commajoin | sed 's/^/To: /'
+			printf '%s' "$hdrs" | mhdr -M -h cc - |
+				commajoin | sed 's/^/Cc: /'
+			printf '%s' "$hdrs" | mhdr -M -h bcc - |
+				commajoin | sed 's/^/Bcc: /'
+			COLUMNS=10000 mscan -f 'Subject: Fwd: [%f] %s' "$@" 2>/dev/null | sed 1q
+			printf '%s\n' "$hdrs" | awk '{ print }' |
+				msed "/to/d; /cc/d; /bcc/d" -
+		} | msed "/cc/a//; /bcc/a//; /from/a/$default_from/" - | sed '/^$/d'
+		msgid
+		museragent
+		cat "$MBLAZE/headers" 2>/dev/null
+		if [ -n "$raw" ]; then
+			prev=$(pwd)
+			attachdir=$(mktemp -d)
+			cd $attachdir
+			trap 'rm -r "$attachdir"' EXIT
+
+			mseq -r "$@" \
+				| xargs -I {} mshow -Bx {} \
+				| xargs -I {} realpath {} \
+				| sed '/^$/d; s/^/Attach: /'
+			cd $prev
+		fi
+
+		printf '\n\n'
+		if [ -z "$raw" ]; then
+			mseq -r "$@" | sed 's:^:#message/rfc822#inline :; s:$:>:'
+		else (
+			SEP=-----
+			IFS=$NL
+			for f in $(mseq -r "$@"); do
+				printf '%s Forwarded message from %s %s\n\n' \
+				       $SEP "$(mhdr -d -A -h from "$f")" $SEP
+				DISPLAY= mshow -n -N "$f" </dev/null |
+					sed 's/^-/- &/'    # RFC 934
+				printf '\n%s %s %s\n\n' \
+				       $SEP 'End forwarded message' $SEP
+			done
+		) fi
+		;;
+	*mbnc*)
+		old_ifs="$IFS"
+		IFS=$NL
+		set -- $(mseq -r -- "$@")
+		IFS="$old_ifs"
+		if [ "$#" -ne 1 ]; then
+			printf 'mbnc: needs exactly one mail to bounce\n' 1>&2
+			exit 1
+		fi
+
+		{
+			printf '%s' "$hdrs" | mhdr -M -h resent-to - |
+				commajoin | sed 's/^/Resent-To: /'
+			printf '%s' "$hdrs" | mhdr -M -h resent-cc - |
+				commajoin | sed 's/^/Resent-Cc: /'
+			printf '%s\n' "$hdrs" | awk '{ print }' |
+				msed "/resent-to/d; /resent-cc/d" -
+		} |
+			msed "/resent-to/a//; /resent-from/a/$default_from/" - | sed '/^$/d'
+		msgid | sed 's/^/Resent-/'
+		printf 'Resent-Date: %s\n' "$(mdate)"
+		(
+			IFS=$NL
+			cat $(mseq -r -- "$@")
+		)
+		;;
+	*mrep*)
+		old_ifs="$IFS"
+		IFS=$NL
+		set -- $(mseq -r -- "$@")
+		IFS="$old_ifs"
+		if [ "$#" -ne 1 ]; then
+			printf 'mrep: needs exactly one mail to reply to\n' 1>&2
+			exit 1
+		fi
+
+		ng=$(mhdr -h newsgroups "$1")
+		if [ "$ng" ]; then
+			printf 'Newsgroups: %s\n' "$ng"
+		else
+			to=$(mhdr -d -h reply-to "$1")
+			[ -z "$to" ] && to=$(mhdr -d -A -h from "$1")
+			printf 'To: %s\n' "$to"
+			printf 'Cc: %s\n' \
+			       "$(mhdr -d -A -h to:cc: "$1" |
+				       notmine |grep -Fv -e "$to" |
+				       ouniq |commajoin)"
+			printf 'Bcc: \n'
+			printf '%s\n' "$hdrs" | awk '{ print }' |
+				msed "/body/d" -
+		fi | sed '/^$/d'
+		printf 'Subject: Re: %s\n' "$(COLUMNS=10000 mscan -f '%S' "$1")"
+		if ! printf '%s\n' "$hdrs" | awk '{ print }' |
+		     mhdr -h from: - >/dev/null; then
+			addr=$(maddr -a -h delivered-to:to:cc:bcc: "$1" | replyfrom | head -n1)
+			[ -n "$addr" ] && from=$(maddr -h reply-from "$MBLAZE/profile" | grep -Fi "<$addr>" | head -n1)
+			[ -n "$addr" ] && [ -z "$from" ] && from=$(maddr -h alternate-mailboxes "$MBLAZE/profile" | grep -Fi "<$addr>" | head -n1)
+			[ -z "$from" ] && from=$(mhdr -h local-mailbox "$MBLAZE/profile")
+			[ -n "$from" ] && printf 'From: %s\n' "$from"
+		fi
+		mid=$(mhdr -h message-id "$1")
+		if [ "$mid" ]; then
+			printf 'References:'
+			{
+				mhdr -h references "$1"
+				printf '%s\n' "$mid"
+			} | reffmt
+			printf 'In-Reply-To: %s\n' "$mid"
+		fi
+		msgid
+		museragent
+		cat "$MBLAZE/headers" 2>/dev/null
+		printf '\n'
+
+		if [ -z "$noquote" ]; then
+			mquote "$1"
+			printf '\n'
+		fi
+		(
+			IFS=$NL
+			cat -- /dev/null $(printf '%s' "$hdrs" | mhdr -M -h body -)
+		)
+		printf '\n'
+		;;
+	esac
+
+	case "$0" in
+	*mbnc*) ;;
+	*)
+		if [ -f "$MBLAZE/signature" ]; then
+			SIGNATURE="$MBLAZE/signature"
+		elif [ -f ~/.signature ]; then
+			SIGNATURE="$HOME/.signature"
+		fi
+
+		if [ -n "$SIGNATURE" ]; then
+			printf '%s\n' '-- '
+			cat "$SIGNATURE"
+		fi
+	esac
+} >"$draft"
+
+automime=
+c=$defaultc
+while :; do
+	case "$c" in
+	s|send)
+		case "$(mhdr -h newsgroups "$draft")" in
+			*gmane.*) sendmail="mblow -s news.gmane.org";;
+			*.*) sendmail="mblow";;
+		esac
+
+		resent="$(maddr -h resent-to "$draft")"
+		case "$resent" in
+		?*)
+			sendmail=$(mhdr -h sendmail "$MBLAZE/profile")
+			sendmail="${sendmail:-sendmail} -- $resent"
+			;;
+		esac
+
+		if [ -s "$draftmime" ]; then
+			if [ "$draft" -ot "$draftmime" ] || [ "$automime" = 1 ]; then
+				stampdate "$draftmime"
+				if $sendmail <"$draftmime"; then
+					if [ "$senthook" ]; then
+						mv "$draftmime" "$draft"
+						$senthook "$draft"
+					elif [ "$outbox" ]; then
+						mv "$draftmime" "$draft"
+						mrefile "$(mflag -d -S "$draft")" "$outbox"
+					else
+						rm "$draft" "$draftmime"
+					fi
+				else
+					printf '%s\n' "mcom: $sendmail failed, kept draft $draft"
+					exit 2
+				fi
+			else
+				printf 'mcom: re-run mmime first.\n'
+				c=
+				continue
+			fi
+		else
+			if mmime -c <"$draft" && ! [ "$automime" = 1 ]; then
+				stampdate "$draft"
+				if $sendmail <"$draft"; then
+					if [ "$senthook" ]; then
+						$senthook "$draft"
+					elif [ "$outbox" ]; then
+						mrefile "$(mflag -d -S "$draft")" "$outbox"
+					else
+						rm "$draft"
+					fi
+				else
+					printf '%s\n' "mcom: $sendmail failed, kept draft $draft"
+					exit 2
+				fi
+			else
+				printf '%s\n' "mcom: message needs to be MIME-encoded first."
+				c=
+				continue
+			fi
+		fi
+
+		case "$0" in
+			*mrep*) mflag -R -- "$1" ;;
+			*mbnc*) mflag -P -- "$1" ;;
+			*mfwd*) mflag -P -- "$@" ;;
+		esac
+		case "$0" in
+			*mrep*|*mbnc*|*mfwd*) mseq -f | mseq -S ;;
+		esac
+
+		exit 0
+		;;
+	c|cancel)
+		stampdate "$draft"
+		rm -f "$draftmime"
+		printf '%s\n' "mcom: cancelled draft $draft"
+		exit 1
+		;;
+	m|mime)
+		do_mime
+		mshow -t "$draftmime"
+		c=
+		;;
+	e|edit)
+		c=
+		if ! $editor "$draft"; then
+			c=d
+		else
+			if checksensible "$draft"; then
+				stripempty "$draft"
+				if mmime -c <"$draft" && ! needs_multipart "$draft"; then
+					automime=
+				else
+					automime=1
+					do_mime
+				fi
+			else
+				printf '\n'
+			fi
+		fi
+		;;
+	justsend)
+		stripempty "$draft"
+		if mmime -c <"$draft" && ! needs_multipart "$draft"; then
+			automime=
+		else
+			automime=1
+			do_mime
+		fi
+		c=send
+		;;
+	d|delete)
+		rm -i "$draft"
+		if ! [ -f "$draft" ]; then
+			rm -f "$draftmime"
+			printf '%s\n' "mcom: deleted draft $draft"
+			exit 0
+		fi
+		c=
+		;;
+	sign)
+		msign "$draft" >"$draftmime"
+		mshow -t "$draftmime"
+		c=
+		;;
+	encrypt)
+		mencrypt "$draft" >"$draftmime"
+		mshow -t "$draftmime"
+		c=
+		;;
+	p|preview|show)
+		if [ -e "$draftmime" ]; then
+			mshow "$draftmime"
+		else
+			mshow "$draft"
+		fi
+		c=
+		;;
+	*)
+		printf 'What now? (%s[s]end, [c]ancel, [d]elete, [e]dit, [m]ime, [p]review, sign, encrypt) ' "${automime:+mime and }"
+		read -r c
+		;;
+	esac
+done

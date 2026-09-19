@@ -1,0 +1,26 @@
+#!/bin/sh -e
+
+if command -v gpg2 >/dev/null; then
+	GPG=gpg2
+else
+	GPG=gpg
+fi
+
+tmp=$(mktemp -t mgpg.XXXXXX)
+trap "rm -f '$tmp'" INT TERM EXIT
+
+{
+	echo "Content-Type: $PIPE_CONTENTTYPE"
+	echo
+	cat
+} > "$tmp"
+
+n=$(mshow -t "$tmp" | awk -F: '
+	/: application\/pgp-encrypted/ {supported = 1}
+	/: application\/octet-stream/ {if (supported) print $1}')
+
+if [ "$n" ]; then
+	mshow -O "$tmp" "$n" | $GPG --quiet -d 2>&1 || exit 0
+	exit 64
+fi
+exit 63

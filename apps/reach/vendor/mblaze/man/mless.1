@@ -1,0 +1,73 @@
+.Dd July 22, 2016
+.Dt MLESS 1
+.Os
+.Sh NAME
+.Nm mless
+.Nd conveniently read messages in less(1)
+.Sh SYNOPSIS
+.Nm
+.Op Ar msg
+.Sh DESCRIPTION
+.Nm
+runs
+.Xr less 1
+on the output of
+.Xr mshow 1
+for the current sequence.
+Display starts with the current message, or
+.Ar msg
+if passed.
+.Po
+See
+.Xr mmsg 7
+for the message argument syntax.
+.Pc
+.Pp
+When no messages are passed and the standard input is from a pipe,
+.Ql mseq -S
+is called to set the current sequence;
+.Nm
+is then run on the resulting sequence.
+The first "file" of the less instance will be the output of
+.Xr mscan 1 .
+This makes
+.Nm
+convenient for use at the end of a pipeline.
+.Pp
+.Nm
+will start
+.Xr less 1
+and display the current message, if possible.
+Use
+.Sq Ic ":n"
+and
+.Sq Ic ":p"
+to read the next (resp. previous) message.
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa ${MBLAZE:-$HOME/.mblaze}/mlesskey , Pa $HOME/.mlesskey
+Additional keybindings loaded for convenience.
+.It Pa ${MBLAZE:-$HOME/.mblaze}/mless , Pa $HOME/.mless
+Additional compiled keybindings loaded for convenience.
+(Only needed for less earlier than version 590.)
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr less 1 ,
+.Xr mscan 1 ,
+.Xr mseq 1 ,
+.Xr mshow 1 ,
+.Xr mmsg 7
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

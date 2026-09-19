@@ -1,0 +1,161 @@
+.Dd July 30, 2020
+.Dt MPICK 1
+.Os
+.Sh NAME
+.Nm mpick
+.Nd advanced message filter
+.Sh SYNOPSIS
+.Nm
+.Op Fl F Ar file
+.Op Fl T
+.Op Fl v
+.Op Fl t Ar test
+.Op Ar msgs\ ...
+.Sh DESCRIPTION
+.Nm
+prints all matching messages.
+.Pp
+If used interactively,
+.Nm
+will default to the current sequence.
+Otherwise,
+.Nm
+will read filenames from the standard input.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl F Ar file
+Read expression from
+.Ar file
+and only show matching messages, see
+.Sx TESTS .
+.It Fl T
+Include whole thread.
+.It Fl t Ar test
+Only show messages matching the expression
+.Ar test ,
+see
+.Sx TESTS .
+.It Fl v
+Print how many messages were tested and picked to standard error.
+.El
+.Sh TESTS
+.Nm
+tests are given by the following EBNF:
+.Bd -literal
+<expr>     ::= <expr> ? <expr> : <expr>  -- ternary operator
+             | <expr> || <expr>  -- disjunction
+             | <expr> && <expr>  -- conjunction
+             | ! <expr>          -- negation
+             | ( <expr> )
+             | <expr> "|"  <str> -- pipe current mail to command
+             | <expr> ">>" <str> -- append current mail to file
+             | <expr> ">"  <str> -- write current mail to file
+             | <flagprop>
+             | <timeprop> <numop> <dur>
+             | <numprop> <numop> <num>
+             | <hdrprop> <decodeop> <strop> <str>
+             | <strprop> <strop> <str>
+             | prune             -- do not match further messages in thread
+             | print             -- always true value
+             | skip              -- always false value
+             | <let>
+             | <ident>
+
+<flagprop> ::= child | draft | flagged | info | new | parent | passed
+             | replied  | seen | selected | trashed
+
+<timeprop> ::= atime | ctime | mtime | date
+
+<numprop>  ::= depth | kept | replies | index | size | total
+
+<numop>    ::= <= | < | >= | > | == | = | !=
+
+<dur>      ::= "./path"          -- mtime of relative path
+             | "/path"           -- mtime of absolute path
+             | "YYYY-MM-DD HH:MM:SS"
+             | "YYYY-MM-DD"      -- at midnight
+             | "HH:MM:SS"        -- today
+             | "HH:MM"           -- today
+             | "-[0-9]+d"        -- n days ago at midnight
+             | "-[0-9]+h"        -- n hours before now
+             | "-[0-9]+m"        -- n minutes before now
+             | "-[0-9]+s"        -- n seconds before now
+             | [0-9]+            -- absolute epoch time
+
+<num>      ::= [0-9]+ ( c        -- *1
+                      | b        -- *512
+                      | k        -- *1024
+                      | M        -- *1024*1024
+                      | G        -- *1024*1024*1024
+                      | T )?     -- *1024*1024*1024*1024
+             | cur               -- index of cur message
+
+<hdrprop>  ::= from | to | subject | <str>
+
+<decodeop> ::= . addr          -- match address parts
+             | . disp          -- match address display parts
+             |                 -- empty matches raw headers
+
+<strprop>  ::= path
+
+<strop>    ::= == | = | !=       -- string (in)equality
+             | ===    | !===     -- case insensitive string (in)equality
+             | ~~     | !~~      -- glob (fnmatch)
+             | ~~~    | !~~~     -- case insensitive glob (fnmatch)
+             | =~     | !=~ | !~ -- POSIX Extended Regular Expressions
+             | =~~    | !=~~     -- case insensitive POSIX Extended Regular Expressions
+
+<str>      ::= " ([^"] | "")+ "  -- use "" for a single " inside "
+             | $[A-Za-z0-9_]+    -- environment variable
+
+-- let expressions evaluate the expression following the `in` keyword,
+-- the bindings are lazily evaluated.
+<let>      ::= { let <ident> = <scope> } in <scope>
+
+-- Inside the scope previously defined idents are replaced with expressions
+<scope>    ::= <expr>
+
+<ident>    ::= [A-Za-z_][A-Za-z0-9_]+
+.Ed
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+You can pick mails to move them into another
+.Dv maildir .
+.Pp
+.Dl mv $(mlist ./INBOX | mpick -t 'from =~ \&"@github\&"') ./github/cur
+.Pp
+Or you can use
+.Nm
+to pick mails from the current sequence.
+.Pp
+.Dl mpick -t 'subject =~~ \&"mblaze\&"' | mscan
+.Pp
+A more advanced
+.Nm
+expression to pick mails in a certain time span,
+which are flagged as replied or not seen.
+.Bd -literal -offset indent
+mpick -t 'date >= \&"2016-01-01\&" && date < \&"2017-01-01\&" && (replied || !seen)'
+.Ed
+.Pp
+And to find other mblaze users.
+.Pp
+.Dl mpick -t '"User-Agent" =~~ \&"mblaze\&"' | mscan
+.Sh SEE ALSO
+.Xr lr 1 ,
+.Xr mailx 1
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.An Duncan Overbruck Aq Mt mail@duncano.de
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

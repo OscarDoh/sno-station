@@ -1,0 +1,1 @@
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":["/usr/bin/zsh","-lc","cat /tmp/reach-live-3c484ufk/home-00c882584fc0/.local/lib/sno-reach/releases/2.0/guide/agent-reach.md"]}}}

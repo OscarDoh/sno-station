@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# The public entry bounds this entire read-only helper, including every state query.
+set -Eeuo pipefail
+release="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+address="${1:?seat address required}"
+root="${SNO_REACH_ROOT:-$HOME/.local/state/sno-reach}"
+header="$release/vendor/bin/mhdr"
+declare -A works=()
+declare -A work_items=()
+for card in "$root/$address/new/"* "$root/$address/cur/"*; do
+    [[ -e "$card" || -L "$card" ]] || continue
+    [[ -f "$card" && -r "$card" && ! -L "$card" ]] || { printf 'reach: unreadable card: %s\n' "$card" >&2; exit 74; }
+    type="$("$header" -h x-type "$card")"
+    case "$type" in question|decision) ;; *) continue ;; esac
+    if "$header" -h x-state "$card" >/dev/null; then continue; else rc=$?; [[ "$rc" == 1 ]] || exit "$rc"; fi
+    work="$("$header" -h x-work "$card")"
+    id="$("$header" -h message-id "$card")"
+    works["$work"]=1
+    work_items["$id"]=1
+done
+while IFS= read -r work; do
+    [[ -n "$work" ]] || continue
+    rows="$("$release/bin/sno-reach" state --work "$work" --json)"
+    while IFS= read -r id; do
+        [[ -n "${work_items[$id]:-}" ]] || continue
+        printf 'Reach: %s is seen but not accepted; use reply --state accepted on its original card.\n' "$id"
+    done < <(jq -r --arg address "$address" 'select(.recipient == $address and .state == "seen") | .message_id' <<<"$rows")
+done < <(printf '%s\n' "${!works[@]}" | sort)

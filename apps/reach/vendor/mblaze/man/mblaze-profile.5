@@ -1,0 +1,130 @@
+.Dd July 10, 2025
+.Dt MBLAZE-PROFILE 5
+.Os
+.Sh NAME
+.Nm mblaze-profile
+.Nd configuration of the mblaze message system
+.Sh DESCRIPTION
+The
+.Xr mblaze 7
+message system can be configured with a
+.Pa profile
+file,
+which is located in the directory
+.Pa ~/.mblaze
+(or
+.Ev MBLAZE
+if set.)
+.Pp
+.Pa profile
+consists of lines, similar to RFC 2822 headers, in the form
+.Dl Ar key Ns \&: Ar value
+.Pp
+The key
+.Sq Cm \&#
+may be used to precede a comment:
+.Dl Li "#:" Ar comment
+.Pp
+Please note that empty lines will halt parsing.
+.Pp
+The following
+.Ar key Ns s
+are used by
+.Xr mblaze 7 :
+.Bl -tag -width Ds
+.It Li Local\&-Mailbox\&:
+Your primary mail address, used as the default value for
+.Li From\&:
+in
+.Xr mcom 1 ,
+and in
+.Xr mscan 1
+to recognize messages sent to you.
+.It Li Alternate\&-Mailboxes\&:
+A comma-separated list of mail addresses that also belong to you, for
+.Xr mscan 1
+to recognize messages sent by or directly to you.
+.It Li FQDN\&:
+The fully qualified domain name used for
+.Li Message\&-Id\&:
+generation in
+.Xr mgenmid 1 .
+.It Li Maildir\&:
+If set,
+.Xr mdirs 1
+will use this maildir when no directories are supplied.
+.It Li Outbox\&:
+If set,
+.Xr mcom 1
+will save messages in this maildir after sending.
+.It Li Drafts\&:
+If set,
+.Xr mcom 1
+will create draft messages in this maildir (defaults to Outbox).
+.It Li Reply-From\&:
+A comma-separated list of display name and mail address pairs,
+formatted like this:
+.Dl Li Primary Name <myname1@domain1>, Name v.2 <myname2@domain2>, \[dq]Name, My Third\[dq] <myname3@domain3>, ...
+The first of these that appears in the
+.Li Delivered-To\&: ,
+.Li To\&: ,
+.Li Cc\&: ,
+or
+.Li Bcc\&:
+header will be used as the
+.Li From\&:
+address in a reply.
+If not set,
+.Li Alternate\&-Mailboxes\&:
+will be used as a default.
+.It Li Scan\&-Format\&:
+The default format string for
+.Xr mscan 1 .
+.It Li Sendmail\&:
+The program that
+.Xr mcom 1
+will call to send mail.
+(Default:
+.Sq Li sendmail ) .
+.It Li Sendmail\&-Args\&:
+Flags to be passed to the
+.Li Sendmail\&:
+program.
+(Default:
+.Sq Fl t ) .
+.It Li Senthook\&:
+If set,
+.Xr mcom 1
+will call this on the mail file after sending,
+and not refile the sent mail to outbox.
+.It Li Editor\&:
+The program that
+.Xr mcom 1
+will call to edit mail.
+(Default:
+.Ev MBLAZE_EDITOR
+or
+.Ev VISUAL
+or
+.Ev EDITOR ) .
+Can contain command line arguments to the editor.
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev MBLAZE
+Directory containing mblaze configuration files.
+(Default:
+.Pa $HOME/.mblaze )
+.El
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm mblaze
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

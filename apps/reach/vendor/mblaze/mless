@@ -1,0 +1,162 @@
+#!/bin/sh
+# mless [MSG] - less(1)-wrapper around mshow
+
+colorscan() {
+awk '
+function co(n, c) { e = ENVIRON["MCOLOR_" n]; return e ? e : c }
+function fg(c, s) { return sprintf("\033[38;5;%03dm%s\033[0m", c, s) }
+function so(s) { return sprintf("\033[1m%s\033[0m", s) }
+/^>/ { print so(fg(co("CUR",119), $0)); next }
+/^ *\\_/ { print fg(co("MISS",242), $0); next }
+{ print }'
+}
+
+if [ -n "${NO_COLOR+set}" ]; then
+	colorscan() { cat -; }
+fi
+
+if [ "$1" = --filter ]; then
+	if [ "$2" = //scan ]; then
+		mscan : 2>/dev/null | colorscan
+		exit $?
+	fi
+
+	mseq -C "$2"
+
+	total=$(mscan -n -- -1)
+	case $2 in
+		1)              mscan .-0:.+5 ;;
+		2)              mscan .-1:.+4 ;;
+		$((total - 2))) mscan .-3:.+2 ;;
+		$((total - 1))) mscan .-4:.+1 ;;
+		$total)         mscan .-5:.+0 ;;
+		*)              mscan .-2:.+3 ;;
+	esac 2>/dev/null | colorscan
+	echo
+
+	if ! [ -f "$(mseq -r "$2")" ]; then
+		mseq "$2"
+		exit
+	fi
+
+	if [ $MLESS_RAW -eq 0 ]; then
+		if [ $MLESS_HTML -eq 1 ]; then
+			mshow -A text/html "$2"
+		else
+			mshow "$2"
+		fi | mcolor
+	else
+		mseq -r "$2"
+		echo
+		cat "$(mseq -r "$2")"
+	fi
+	exit $?
+fi
+
+if [ "$#" -eq 0 ] && ! [ -t 0 ]; then
+	mseq -S >/dev/null
+	set -- :
+fi
+
+if ! [ -t 1 ]; then
+	exec mseq :
+fi
+
+[ "$#" -eq 1 ] && set -- ${1:-.}
+
+if [ "$#" -ge 1 ]; then
+	mseq -C "$1"
+fi
+
+: ${MLESS_NO_LESSOPEN=0}
+: ${MLESS_OPT_C=c}
+if less --version 2>/dev/null |grep -q OpenBSD; then
+	# Removed in https://github.com/openbsd/src/commit/c74702f8a020c6cfd3ae0dbd2b85bf100802950e
+	MLESS_NO_LESSOPEN=1
+	# In OpenBSD, -c means the opposite of upstream -c m(
+	MLESS_OPT_C=
+fi
+
+nl="
+"
+export MLESS_RAW=0
+export MLESS_HTML=0
+if [ -f "$MBLAZE/mlesskey" ]; then
+	export LESSKEYIN="$MBLAZE/mlesskey"
+elif [ -f "$HOME/.mblaze/mlesskey" ]; then
+	export LESSKEYIN="$HOME/.mblaze/mlesskey"
+elif [ -f "$HOME/.mlesskey" ]; then
+	export LESSKEYIN="$HOME/.mlesskey"
+elif [ -f "$MBLAZE/mless" ]; then
+	export LESSKEY="$MBLAZE/mless"
+elif [ -f "$HOME/.mblaze/mless" ]; then
+	export LESSKEY="$HOME/.mblaze/mless"
+elif [ -f "$HOME/.mless" ]; then
+	export LESSKEY="$HOME/.mless"
+fi
+scan=0
+while :; do
+	if [ $MLESS_NO_LESSOPEN -eq 1 ]; then
+		cur=$(mscan -n .)
+		total=$(mscan -n : | tail -1)
+
+		if [ $scan -ne 0 ]
+		then
+			cur="//scan"
+			status="mless.."
+		else
+			status="mless $cur (message $cur of $total).."
+		fi
+
+		case $cur in
+			[0-9]*) $0 --filter $cur;;
+			*) $0 --filter //scan;;
+		esac | less -Ps"$status" -R"$MLESS_OPT_C"
+	else
+		LESSOPEN="|$0 --filter %s" \
+			less -Ps"mless %f?m (message %i of %m).." -R \
+			"+:e $(mscan -n .)$nl" //scan $(mscan -n :)
+	fi
+
+	case "$?" in
+	0|1) exit $?;;
+	36) # $ goto end
+		mseq -C '$' 2>/dev/null
+		;;
+	78) # N go to next unseen message
+		nu=$(magrep -v -m1 :S .:) && mseq -C "$nu"
+		;;
+	107) # k next thread
+		mseq -C "$(mseq .+1: | sed -n '/^[^ <]/{p;q;}')"
+		;;
+	100) # d mark read
+		mflag -S .
+		mseq -f : | mseq -S
+		mseq -C +
+		;;
+	82) # R toggle raw mode
+		MLESS_RAW=$((1-$MLESS_RAW))
+		;;
+	72) # H toggle HTML mode
+		MLESS_HTML=$((1-$MLESS_HTML))
+		;;
+	91) # [ prev file
+		case $cur in
+			1) scan=1;;
+			*) mseq -C '.-1' 2>/dev/null;;
+		esac
+		;;
+	93) # ] next file
+		if [ $scan -eq 0 ]
+		then
+			mseq -C '.+1' 2>/dev/null
+		else
+			scan=0
+			mseq -C 1 2>/dev/null
+		fi
+		;;
+	94) # ^ goto parent
+		mseq -C '.^' 2>/dev/null
+		;;
+	esac
+done

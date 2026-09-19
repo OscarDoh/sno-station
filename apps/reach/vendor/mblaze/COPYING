@@ -1,0 +1,12 @@
+mblaze is in the public domain.
+
+To the extent possible under law, Leah Neukirchen <leah@vuxu.org>
+has waived all copyright and related or neighboring rights to this work.
+http://creativecommons.org/publicdomain/zero/1.0/
+
+
+The files mystrverscmp.c and mymemmem
+are MIT-licensed and were written by Rich Felker.
+
+mpick.c is largely based on code by Leah Neukirchen
+and has been contributed by Duncan Overbruck <mail@duncano.de>

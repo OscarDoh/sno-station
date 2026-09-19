@@ -1,0 +1,51 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.0/schema.json",
+  "root": false,
+  "extends": [
+    "../../biome.json"
+  ],
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "src/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "better-sqlite3": "The host skin uses @snoai/sno-station-mem/client; storage and embedding are sidecar-owned.",
+                  "better-sqlite3-multiple-ciphers": "The host skin uses @snoai/sno-station-mem/client; storage and embedding are sidecar-owned.",
+                  "@snoai/sno-station-core-crypto": "The host skin uses @snoai/sno-station-mem/client; storage and embedding are sidecar-owned.",
+                  "@snoai/embedder": "The host skin uses @snoai/sno-station-mem/client; storage and embedding are sidecar-owned.",
+                  "@huggingface/transformers": "The host skin uses @snoai/sno-station-mem/client; storage and embedding are sidecar-owned.",
+                  "onnxruntime-node": "The host skin uses @snoai/sno-station-mem/client; storage and embedding are sidecar-owned.",
+                  "@snoai/sno-station-mem": "The host skin uses @snoai/sno-station-mem/client; storage and embedding are sidecar-owned."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "@snoai/sno-station-mem/internal/store/**",
+                      "@snoai/sno-station-mem/internal/engine/extraction/**",
+                      "@snoai/sno-station-mem/internal/engine/observability/observable-memory-store",
+                      "@snoai/sno-station-mem/internal/engine/observability/observable-embedder"
+                    ],
+                    "message": "The host skin must use the published memory client."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

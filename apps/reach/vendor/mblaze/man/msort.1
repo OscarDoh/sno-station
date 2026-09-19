@@ -1,0 +1,67 @@
+.Dd July 22, 2016
+.Dt MSORT 1
+.Os
+.Sh NAME
+.Nm msort
+.Nd sort messages
+.Sh SYNOPSIS
+.Nm
+.Op Fl r
+.Op Fl f | Fl d | Fl s | Fl F | Fl M | Fl S | Fl U | Fl I
+.Op Ar msgs\ ...
+.Sh DESCRIPTION
+.Nm
+sorts messages according to various orders,
+and prints, separated by newlines, the resulting message names.
+.Po
+See
+.Xr mmsg 7
+for the message argument syntax.
+.Pc
+.Pp
+If no messages are specified,
+.Nm
+will read filenames from the standard input,
+or use the default sequence if used interactively.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl r
+Reverse order.
+.It Fl f
+Sort by
+.Sq Li From\&: .
+.It Fl d
+Sort by date.
+.It Fl s
+Sort by
+.Sq Li Subject\&:
+(modulo various variants of
+.Sq Li Re\&: ) .
+.It Fl F
+Sort by filename, using proper order for numbers in filenames.
+.It Fl M
+Sort by message file modification time.
+.It Fl S
+Sort by message file size.
+.It Fl U
+Sort unread messages after read messages.
+.It Fl I
+Sort flagged messages before unflagged messages.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr mmsg 7
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

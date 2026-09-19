@@ -1,0 +1,35 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "isolatedDeclarations": true,
+    "outDir": "dist",
+    "rootDir": "../..",
+    "exactOptionalPropertyTypes": false,
+    "noPropertyAccessFromIndexSignature": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "paths": {
+      "@snoai/sno-station-mem/client": ["../../packages/sno-station-mem/src/contract/client.ts"],
+      "@/*": [
+        "./src/*"
+      ],
+      "@/config": [
+        "../../packages/sno-station-mem/config/index.ts"
+      ],
+      "@snoai/sno-station-mem/internal/*": [
+        "../../packages/sno-station-mem/src/*",
+        "../../packages/sno-station-mem/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "config/**/*.ts",
+    "index.ts",
+    "bin/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

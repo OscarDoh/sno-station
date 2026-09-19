@@ -1,0 +1,118 @@
+.Dd July 22, 2016
+.Dt MSEQ 1
+.Os
+.Sh NAME
+.Nm mseq
+.Nd manipulate message sequences
+.Sh SYNOPSIS
+.Nm
+.Op Fl fr
+.Op Fl c Ar msg
+.Ar msgs\ ...
+.Nm
+.Fl S
+.Op Fl fr
+<
+.Ar sequence
+.Nm
+.Fl A
+.Op Fl fr
+<
+.Ar sequence
+.Nm
+.Fl C Ar msg
+.Sh DESCRIPTION
+.Nm
+prints, fixes and sets the message sequence.
+.Po
+See
+.Xr mmsg 7
+for the message argument syntax.
+.Pc
+.Pp
+If no
+.Ar msgs
+are passed and
+.Nm
+is used interactively,
+.Nm
+prints all messages in the sequence.
+.Pp
+With
+.Fl S
+or
+.Fl A ,
+.Nm
+will replace
+.Pq resp. append
+the default sequence.
+If the standard output is not a terminal,
+the new sequence is also printed.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl c Ar msg
+Behave as if
+.Ar msg
+was the current message.
+.It Fl f
+Fix non-existing filenames by searching for a message with the same
+maildir id
+.Pq but different flags .
+.It Fl r
+Remove leading indentation from the filenames.
+.It Fl S
+Set the message sequence to the filenames passed on standard input.
+.It Fl A
+Like
+.Fl S ,
+but append to the message sequence instead of replacing it.
+.It Fl C Ar msg
+Set the current message to
+.Ar msg
+and exit.
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev MBLAZE
+Directory containing mblaze configuration.
+.Po
+Default:
+.Pa $HOME/.mblaze
+.Pc
+.It Ev MAILCUR
+Symbolic link referring to the current message.
+.Po
+Default:
+.Pa ${MBLAZE:-$HOME/.mblaze}/cur
+.Pc
+.It Ev MAILDOT
+When set to a filename, overrides the current message.
+.Po
+Prefer using
+.Fl c
+instead.
+.Pc
+.It Ev MAILSEQ
+File were the sequence is stored.
+.Po
+Default:
+.Pa ${MBLAZE:-$HOME/.mblaze}/seq
+.Pc
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr mmsg 7
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Boundary fake for the claude CLI. Same contract as the codex stub: it replaces the vendor
+# process, never the probe's logic.
+#
+#   STUB_CLAUDE_PAYLOAD  file holding the get_usage response object
+#   STUB_CLAUDE_MODE     answer (default) | silent
+#   STUB_CLAUDE_STALE    1 makes the text path report last-known data
+set -Eeuo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+	printf '2.1.237-stub (Claude Code)\n'
+	exit 0
+fi
+
+structured=0
+for arg in "$@"; do
+	[[ "$arg" == "--input-format" ]] && structured=1
+done
+
+if [[ "${STUB_CLAUDE_MODE:-answer}" == "silent" ]]; then
+	exit 0
+fi
+
+if ((structured)); then
+	jq -e -s 'length == 1 and .[0] == {
+		type:"control_request", request_id:"q", request:{subtype:"get_usage"}
+	}' >/dev/null || { printf 'expected one get_usage control request\n' >&2; exit 2; }
+	printf '{"type":"control_response","response":{"request_id":"q","response":'
+	tr -d '\n' <"${STUB_CLAUDE_PAYLOAD:?STUB_CLAUDE_PAYLOAD is required}"
+	printf '}}\n'
+	exit 0
+fi
+
+# The text path. Its whole job here is the staleness sentence.
+case "${STUB_CLAUDE_MODE:-answer}" in
+	text-failure) exit 1 ;;
+	text-timeout) exit 124 ;;
+	text-empty) exit 0 ;;
+esac
+printf 'You are currently using your subscription to power your Claude Code usage\n'
+if [[ "${STUB_CLAUDE_STALE:-0}" == "1" ]]; then
+	printf 'Showing last-known usage (could not refresh)\n'
+fi
+exit 0

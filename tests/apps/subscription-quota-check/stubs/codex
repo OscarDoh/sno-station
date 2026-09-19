@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Boundary fake for the codex CLI. Stands in for the vendor process only — every line of
+# the probe's own parsing, verdict and exit-code logic runs for real against it.
+#
+# Behaviour is chosen by the environment, so one stub covers every scenario:
+#   STUB_CODEX_PAYLOAD    file holding the JSON-RPC result line to answer with
+#   STUB_CODEX_MODE       answer (default) | silent   — silent exits without replying
+#   STUB_CODEX_LOGGED_IN  1 (default) | 0
+set -Eeuo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+	printf 'codex-cli 0.147.0-stub\n'
+	exit 0
+fi
+
+if [[ "${1:-}" == "login" && "${2:-}" == "status" ]]; then
+	if [[ "${STUB_CODEX_LOGGED_IN:-1}" == "1" ]]; then
+		printf 'Logged in using ChatGPT\n'
+		exit 0
+	fi
+	printf 'Not logged in\n'
+	exit 1
+fi
+
+# Anything else is the app-server invocation.
+if [[ "${STUB_CODEX_MODE:-answer}" == "silent" ]]; then
+	exit 0
+fi
+
+# Answer, then keep serving with stdin still open — the real app-server does exactly this.
+# A probe that waits for this process to end instead of closing its own write end would
+# hang here until its timeout, which is the regression this stub exists to catch.
+while IFS= read -r line; do
+	case "$line" in
+	*account/rateLimits/read*)
+		cat -- "${STUB_CODEX_PAYLOAD:?STUB_CODEX_PAYLOAD is required}"
+		;;
+	esac
+done
+exit 0

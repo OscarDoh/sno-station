@@ -1,0 +1,664 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPOSITORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPOSITORY
+readonly REACH="$REPOSITORY/bin/sno-reach"
+readonly DOORBELL_TOKEN=REACH-RING
+# An unbounded flock inside the send path is a hang with no signal: the sender
+# blocks forever and never learns the wake outcome. bin/mbox-wake already
+# bounds its own wake-log lock for exactly this reason; these two locks are the
+# same shape and were left unbounded.
+readonly DOORBELL_LOCK_TIMEOUT_SECONDS=5
+export PATH="$REPOSITORY/vendor/bin:$PATH"
+
+die() {
+    local code="$1"
+    shift
+    printf 'reach-ring: %s\n' "$*" >&2
+    exit "$code"
+}
+
+orca_bin() {
+    local candidate
+
+    if [[ -n "${ORCA_CLI_COMMAND:-}" ]]; then
+        printf '%s\n' "$ORCA_CLI_COMMAND"
+        return
+    fi
+    if candidate="$(command -v orca-ide 2>/dev/null)"; then
+        printf '%s\n' "$candidate"
+        return
+    fi
+    candidate="$(command -v orca 2>/dev/null)" || return 1
+    [[ "$candidate" != /usr/bin/orca ]] || return 1
+    printf '%s\n' "$candidate"
+}
+
+orca_json() {
+    local output
+
+    output="$(env -u ORCA_RELAY_DIR -u ORCA_RELAY_SOCKET_PATH \
+        timeout 20 "$ORCA" "$@" --json 2>/dev/null)" || return 1
+    jq -e 'select(.ok == true) | .result' <<<"$output" 2>/dev/null
+}
+
+tmux_server_id() {
+    local pane="$1"
+    local socket pid
+
+    socket="$(tmux display-message -pt "$pane" '#{socket_path}' 2>/dev/null)" || return 1
+    pid="$(tmux display-message -pt "$pane" '#{pid}' 2>/dev/null)" || return 1
+    [[ -n "$socket" && "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    printf '%s\t%s\n' "$socket" "$pid" | sha256sum | awk '{print $1}'
+}
+
+tmux_record_handle() {
+    local pane="$1"
+    local session="$2"
+    local server_id
+
+    server_id="$(tmux_server_id "$pane")" || return 1
+    printf 'tmux-%s:%s\n' "$server_id" "$session"
+}
+
+append_measurement() {
+    local root="$1" recipient="$2" sender="$3" message_id="$4"
+    local outcome="$5" detail="${6:-}"
+    local log_file parent row
+
+    if [[ -n "${SNO_REACH_RING_LOG:-}" ]]; then
+        log_file="$SNO_REACH_RING_LOG"
+    elif [[ -n "${SNO_REACH_ROOT:-}" ]]; then
+        # An isolated mailbox root means an isolated run, and its outcomes belong beside it.
+        # Taking this path from $HOME regardless meant every test ring appended to the LIVE
+        # audit log: the real mailbox stayed clean, so nothing looked wrong, while the record
+        # a supervisor reads to count real wakes filled up with fixtures. Production does not
+        # set this variable, so production keeps the path it always had.
+        log_file="$SNO_REACH_ROOT/reach-ring.jsonl"
+    elif [[ -n "${HOME:-}" ]]; then
+        log_file="$HOME/.local/state/reach-ring.jsonl"
+    else
+        printf 'reach-ring: cannot record wake outcome: HOME is unavailable\n' >&2
+        return 1
+    fi
+    parent="$(dirname -- "$log_file")" || {
+        printf 'reach-ring: cannot resolve wake outcome path %s\n' \
+            "$log_file" >&2
+        return 1
+    }
+    if ! mkdir -p -- "$parent" 2>/dev/null; then
+        printf 'reach-ring: cannot create wake outcome directory %s\n' \
+            "$parent" >&2
+        return 1
+    fi
+    if ! row="$(jq -nc --arg ts "$(date -u +%Y%m%dT%H%M%SZ)" \
+        --arg to "$recipient" --arg from "$sender" --arg msg "$message_id" \
+        --arg root "$root" --arg outcome "$outcome" --arg detail "$detail" \
+        '{ts_utc:$ts, to:$to, from:$from, msg_id:$msg, mailbox:$root,
+          outcome:$outcome, detail:$detail}')"; then
+        printf 'reach-ring: cannot encode wake outcome row\n' >&2
+        return 1
+    fi
+    if ! exec 8>>"$log_file" ||
+       ! flock -w "$DOORBELL_LOCK_TIMEOUT_SECONDS" 8 ||
+       ! printf '%s\n' "$row" >&8; then
+        printf 'reach-ring: cannot append wake outcome file %s\n' \
+            "$log_file" >&2
+        exec 8>&- 2>/dev/null || true
+        return 1
+    fi
+    exec 8>&-
+}
+
+emit() {
+    local root="$1" recipient="$2" sender="$3" message_id="$4"
+    local outcome="$5" detail="${6:-}"
+
+    if ! append_measurement "$root" "$recipient" "$sender" "$message_id" \
+        "$outcome" "$detail"; then
+        printf 'outcome=failed\n'
+        printf 'reach-ring: wake outcome logging failed; sender action is required\n' >&2
+        return 74
+    fi
+    printf 'outcome=%s\n' "$outcome"
+    [[ -z "$detail" ]] || printf 'reach-ring: %s\n' "$detail" >&2
+}
+
+
+# An agent already running inside tmux registers its own window as its seat. This is what
+# makes the transport usable before anything else in the fleet writes a tmux reachability
+# record: the agent is already in the window, so it needs no launcher's help to say so.
+#
+# THE IDENTITY IS THE PANE, NOT THE SESSION. A session name is not unique to an agent:
+# two agents in two panes of one ordinary session would register the same identity, and
+# `send-keys -t <session>` goes to whichever pane tmux currently considers active. One
+# agent would then be handed another's mail — and could answer it — while the intended
+# recipient slept. A pane id (`%17`) is unique for the life of the tmux server, so it
+# names exactly one reader.
+
+# Registration recovery reuses proof that the agent wrote from inside its own pane.
+# An outside process can restore that exact binding, but cannot choose a pane or create
+# a new identity association through this path.
+
+
+
+# The channel table. Adding a transport means adding one row here and one ring function;
+# it never means a second copy of the outcome vocabulary. Every ring function reports
+# through `emit` using the same words: rang · rang-unverified · busy · unresolved ·
+# unregistered · no-channel · failed.
+ring_for_channel() {
+    local channel="$1" root="$2" recipient="$3" sender="$4" message_id="$5" record="$6"
+
+    case "$channel" in
+        orca) ring_orca "$root" "$recipient" "$sender" "$message_id" "$record" ;;
+        tmux) ring_tmux "$root" "$recipient" "$sender" "$message_id" "$record" ;;
+        acp) ring_acp "$root" "$recipient" "$sender" "$message_id" "$record" ;;
+        *)
+            emit "$root" "$recipient" "$sender" "$message_id" no-channel \
+                "unsupported reachability channel $channel"
+            ;;
+    esac
+}
+
+ring_acp() {
+    local root="$1" recipient="$2" sender="$3" message_id="$4" record="$5"
+    local handle agent cwd name identity inventory session_id output line read_command
+    handle="$(jq -r '.handle // empty' "$record")"
+    identity="$(jq -r 'select(.identity.kind == "acp-session") | .identity.value' "$record")"
+    if [[ ! "$handle" =~ ^acp-([a-zA-Z0-9][a-zA-Z0-9_-]*):(/[^:[:cntrl:]]*):([^:[:space:]]+)$ ]]; then
+        emit "$root" "$recipient" "$sender" "$message_id" failed "malformed ACP handle: $handle"
+        return
+    fi
+    agent="${BASH_REMATCH[1]}" cwd="${BASH_REMATCH[2]}" name="${BASH_REMATCH[3]}"
+    if [[ "$identity" != "$name" ]]; then
+        emit "$root" "$recipient" "$sender" "$message_id" failed "ACP identity disagrees with handle: $handle"
+        return
+    fi
+    if ! command -v acpx >/dev/null 2>&1; then
+        emit "$root" "$recipient" "$sender" "$message_id" failed "acpx is missing; session $name cannot be rung"
+        return
+    fi
+    if ! inventory="$(timeout -k 2 10 acpx --cwd "$cwd" --format json "$agent" sessions list --local 2>/dev/null)" ||
+       ! jq -e 'type == "array"' <<<"$inventory" >/dev/null 2>&1; then
+        emit "$root" "$recipient" "$sender" "$message_id" failed "cannot inspect ACP session $name"
+        return
+    fi
+    session_id="$(jq -r --arg cwd "$cwd" --arg name "$name" '
+        [.[] | select(.cwd == $cwd and .name == $name and .closed == false)] |
+        if length == 1 then .[0].acpxRecordId else empty end
+    ' <<<"$inventory")"
+    if [[ -z "$session_id" || "$session_id" == null ]]; then
+        emit "$root" "$recipient" "$sender" "$message_id" unresolved "no open ACP session $name at $cwd"
+        return
+    fi
+    printf -v read_command 'SNO_REACH_ROOT=%q %q inbox --as %q' \
+        "$root" "$REACH" "$recipient"
+    line="$DOORBELL_TOKEN Guide: $REPOSITORY/guide/agent-reach.md. State: $root. Seat: $recipient. You have unanswered local agent mail as '$recipient'. Read Message-ID $message_id using: $read_command . Read the exact file that command returns."
+    if ! output="$(printf '%s\n' "$line" | timeout -k 2 20 acpx --cwd "$cwd" --approve-all \
+        --format json --timeout 15 "$agent" prompt -s "$name" --no-wait --file - 2>/dev/null)" ||
+       ! jq -se --arg id "$session_id" 'length == 1 and .[0].action == "prompt_queued" and
+           .[0].acpxRecordId == $id and (.[0].requestId | type == "string" and length > 0)' \
+           <<<"$output" >/dev/null 2>&1; then
+        emit "$root" "$recipient" "$sender" "$message_id" failed "ACP session $name did not acknowledge the queue; inspect its history before retrying"
+        return
+    fi
+    emit "$root" "$recipient" "$sender" "$message_id" rang-unverified "queued Message-ID $message_id for ACP session $name; pickup is unverified"
+}
+
+run_doorbell() {
+    local recipient='' sender='' message_id=''
+    local root record channel
+
+    while (($# > 0)); do
+        case "$1" in
+            --to) recipient="${2:-}"; shift 2 ;;
+            --from) sender="${2:-}"; shift 2 ;;
+            --msg-id) message_id="${2:-}"; shift 2 ;;
+            *) die 64 "unsupported doorbell option: $1" ;;
+        esac
+    done
+    [[ "$recipient" =~ ^[a-z][a-z0-9-]{0,31}\.[a-z0-9][a-z0-9-]{0,63}@[a-z0-9][a-z0-9.-]{0,252}$ ]] ||
+        die 64 '--to needs one strict address'
+    [[ "$sender" =~ ^[a-z][a-z0-9-]{0,31}\.[a-z0-9][a-z0-9-]{0,63}@[a-z0-9][a-z0-9.-]{0,252}$ ]] ||
+        die 64 '--from needs one strict address'
+    [[ "$message_id" =~ ^\<[^\<\>[:space:]]+\>$ ]] ||
+        die 64 '--msg-id needs one Message-ID'
+    root="${SNO_REACH_ROOT:-${HOME:?HOME is required}/.local/state/sno-reach}"
+    # No address is special. An executor is dispatched on its channel exactly like a TPM
+    # or a CTS; the by-name refusal that used to sit here returned BEFORE the record was
+    # read, so registering an executor could not make it reachable however correct the
+    # registration was.
+    record="$root/$recipient/reachable.json"
+    if [[ ! -f "$record" || -L "$record" ]]; then
+        emit "$root" "$recipient" "$sender" "$message_id" unregistered "run sno reach register --as $recipient --channel <channel> --handle <locator> in that seat"
+        return
+    fi
+    channel="$(jq -er '.channel | strings | select(length > 0)' "$record" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "malformed reachability record for $recipient"
+        return
+    }
+    # The transport is chosen from the record BEFORE any transport's own dependencies are
+    # consulted, so a tmux seat is never failed by a missing Orca binary.
+    ring_for_channel "$channel" "$root" "$recipient" "$sender" "$message_id" "$record"
+}
+
+ring_orca() {
+    local root="$1" recipient="$2" sender="$3" message_id="$4" record="$5"
+    local channel stored_handle identity_kind identity
+    local inventory hits count terminal terminal_handle terminal_tab
+    local record_sha256 record_pid record_host
+    local resolve_attempt refresh_error refresh_status
+    local line nonce tail echoed
+
+    if ! ORCA="$(orca_bin)"; then
+        emit "$root" "$recipient" "$sender" "$message_id" no-channel \
+            'terminal command is unavailable'
+        return
+    fi
+    for resolve_attempt in 1 2 3; do
+    if [[ ! -f "$record" || -L "$record" ]]; then
+        emit "$root" "$recipient" "$sender" "$message_id" unregistered \
+            "reachability record disappeared for $recipient"
+        return
+    fi
+    record_sha256="$(sha256sum "$record" | cut -d ' ' -f1)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "could not snapshot reachability for $recipient"
+        return
+    }
+    record_pid="$(jq -er '.by.pid | numbers | select(. > 0 and floor == .)' \
+        "$record" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "malformed reachability owner PID for $recipient"
+        return
+    }
+    record_host="$(jq -er '.by.host | strings | select(length > 0)' \
+        "$record" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "malformed reachability owner host for $recipient"
+        return
+    }
+    channel="$(jq -er '.channel | strings | select(length > 0)' "$record" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "malformed reachability record for $recipient"
+        return
+    }
+    stored_handle="$(jq -er '.handle | strings | select(length > 0)' "$record" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "malformed reachability handle for $recipient"
+        return
+    }
+    identity_kind="$(jq -er '
+        .identity.kind |
+        strings | select(length > 0)
+    ' "$record" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "malformed reachability identity for $recipient"
+        return
+    }
+    identity="$(jq -er '
+        .identity.value |
+        strings | select(length > 0)
+    ' "$record" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "malformed reachability identity for $recipient"
+        return
+    }
+    # The record is re-read on every resolution attempt, so a seat that changed channel
+    # underneath us stops being this transport's business and goes back to the table.
+    if [[ "$channel" != orca ]]; then
+        ring_for_channel "$channel" "$root" "$recipient" "$sender" "$message_id" "$record"
+        return
+    fi
+    inventory="$(orca_json terminal list)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            'terminal inventory failed'
+        return
+    }
+    hits="$(jq -c --arg handle "$stored_handle" \
+        --arg identity_kind "$identity_kind" --arg identity "$identity" '
+        [.terminals[]? |
+         select(.connected == true and $identity_kind == "orca-tab" and
+                .handle == $handle and .tabId == $identity)] | .[]
+    ' <<<"$inventory" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            'terminal inventory is invalid'
+        return
+    }
+    count="$(grep -c . <<<"$hits" || true)"
+    if [[ "$count" == 0 && "$identity_kind" == orca-tab ]]; then
+        hits="$(jq -c --arg identity "$identity" '
+            [.terminals[]? |
+             select(.connected == true and .tabId == $identity)] | .[]
+        ' <<<"$inventory" 2>/dev/null)" || {
+            emit "$root" "$recipient" "$sender" "$message_id" failed \
+                'terminal inventory is invalid'
+            return
+        }
+        count="$(grep -c . <<<"$hits" || true)"
+    fi
+    if [[ "$count" != 1 ]]; then
+        emit "$root" "$recipient" "$sender" "$message_id" unresolved \
+            "no unique live window for $recipient: handle=$stored_handle identity=$identity_kind:$identity matches=$count"
+        return
+    fi
+    terminal="$hits"
+    terminal_handle="$(jq -er '.handle | strings | select(length > 0)' \
+        <<<"$terminal" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            'resolved terminal has no live handle'
+        return
+    }
+    terminal_tab="$(jq -er '.tabId | strings | select(length > 0)' \
+        <<<"$terminal" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            'resolved terminal has no stable identity'
+        return
+    }
+    set +e
+    refresh_error="$("$REPOSITORY/lib/reach-reachability" register --root "$root" --as "$recipient" \
+        --channel orca --handle "$terminal_handle" \
+        --identity-kind orca-tab --identity "$terminal_tab" \
+        --pid "$record_pid" --host "$record_host" \
+        --if-record-sha256 "$record_sha256" 2>&1)"
+    refresh_status=$?
+    set -e
+    if ((refresh_status == 75)); then
+        if ((resolve_attempt < 3)); then
+            continue
+        fi
+        emit "$root" "$recipient" "$sender" "$message_id" busy \
+            "reachability changed during three live resolution attempts for $recipient"
+        return
+    elif ((refresh_status != 0)); then
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "could not refresh the resolved terminal handle: $refresh_error"
+        return
+    fi
+    break
+    done
+    if ! orca_json terminal wait --terminal "$terminal_handle" --for tui-idle \
+        --timeout-ms 2500 | jq -e '.wait.satisfied == true' >/dev/null 2>&1; then
+        emit "$root" "$recipient" "$sender" "$message_id" busy \
+            "recipient $recipient is mid-turn"
+        return
+    fi
+    if ! exec 7>"$root/$recipient/.reachability.lock" ||
+       ! flock -w "$DOORBELL_LOCK_TIMEOUT_SECONDS" 7; then
+        exec 7>&- 2>/dev/null || true
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "reachability lock for $recipient timed out after ${DOORBELL_LOCK_TIMEOUT_SECONDS}s"
+        return
+    fi
+    if ! jq -e --arg handle "$terminal_handle" --arg tab "$terminal_tab" '
+        .channel == "orca" and .handle == $handle and
+        .identity == {kind:"orca-tab", value:$tab}
+    ' "$record" >/dev/null 2>&1; then
+        exec 7>&-
+        emit "$root" "$recipient" "$sender" "$message_id" busy \
+            "reachability changed before wake submission for $recipient"
+        return
+    fi
+    inventory="$(orca_json terminal list)" || {
+        exec 7>&-
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            'final terminal inventory failed'
+        return
+    }
+    count="$(jq -r --arg handle "$terminal_handle" --arg tab "$terminal_tab" '
+        [.terminals[]? |
+         select(.connected == true and .handle == $handle and .tabId == $tab)] |
+        length
+    ' <<<"$inventory" 2>/dev/null)" || {
+        exec 7>&-
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            'final terminal inventory is invalid'
+        return
+    }
+    if [[ "$count" != 1 ]]; then
+        exec 7>&-
+        emit "$root" "$recipient" "$sender" "$message_id" busy \
+            "resolved window changed before wake submission for $recipient"
+        return
+    fi
+    nonce="$(printf '%04x%04x' "$((RANDOM & 65535))" "$(($$ & 65535))")"
+    line="$DOORBELL_TOKEN Guide: $REPOSITORY/guide/agent-reach.md. State: $root. Seat: $recipient. $nonce typed by the mail transport, not by the owner. You have unanswered mail as '$recipient'. Read Message-ID $message_id now."
+    if ! orca_json terminal send --terminal "$terminal_handle" --text "$line" >/dev/null; then
+        exec 7>&-
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            'terminal rejected the wake text'
+        return
+    fi
+    tail="$(orca_json terminal read --terminal "$terminal_handle" --limit 40 | \
+        jq -r '.terminal.tail[]?' 2>/dev/null || true)"
+    echoed=unverified
+    [[ "$tail" != *"$nonce"* ]] || echoed=confirmed
+    if ! orca_json terminal send --terminal "$terminal_handle" --text '' --enter >/dev/null; then
+        exec 7>&-
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            'terminal rejected wake submission'
+        return
+    fi
+    exec 7>&-
+    if [[ "$echoed" == confirmed ]]; then
+        emit "$root" "$recipient" "$sender" "$message_id" rang \
+            "submitted Message-ID $message_id to $recipient"
+    else
+        emit "$root" "$recipient" "$sender" "$message_id" rang-unverified \
+            "submitted Message-ID $message_id without runtime echo"
+    fi
+}
+
+# The gap between the body and the submit key is the whole mechanism. Measured on both
+# runtimes: sending them back to back leaves the text sitting unsubmitted in the agent's
+# composer, while every delay at or above 0.1 s submitted it. 0.3 s is three times the
+# smallest value observed working — under-waiting is the failure mode and over-waiting
+# costs a fifth of a second.
+readonly TMUX_SETTLE_SECONDS=0.3
+readonly TMUX_SUBMIT_ATTEMPTS=3
+# The slowest real delivery measured on this fleet took 32 seconds. A deadline shorter
+# than that reports a genuine success as unconfirmed, which is worse than waiting.
+readonly TMUX_CONFIRM_SECONDS=90
+
+# Did anyone but us put this nonce on the screen? Our own line always carries the
+# doorbell token, so a line holding the nonce WITHOUT that token was produced by the
+# agent. Matching the nonce anywhere at all would confirm the ring from our own echo,
+# which is exactly how a wake that nobody read reports success.
+#
+# The token co-occurrence test is the SECOND belt, not the first, because it fails on a
+# wrapped line: tmux breaks a long sent line across rows, the continuation row carries the
+# nonce and not the token, and the ring confirms itself. The first belt is that the string
+# below is never sent at all — the ring describes it rather than containing it — so it can
+# only appear in the pane if something there composed it.
+tmux_agent_confirmed() {
+    local target="$1" nonce="$2" screen
+    local acknowledgement="ACK-$nonce"
+
+    screen="$(tmux capture-pane -pt "$target" -S -80 2>/dev/null)" || return 1
+    grep -F "$acknowledgement" <<<"$screen" | grep -qvF "$DOORBELL_TOKEN"
+}
+
+# Does this pane still exist, and is it still the pane this seat is registered to? Both
+# halves matter: the pane can die, and the seat can be re-registered somewhere else while
+# a ring is in flight. Answering only the first question sends mail to a retired reader.
+tmux_target_current() {
+    local record="$1" target="$2" now_channel now_handle now_identity session expected_handle
+
+    [[ -f "$record" && ! -L "$record" ]] || return 1
+    now_channel="$(jq -er '.channel | strings' "$record" 2>/dev/null)" || return 1
+    [[ "$now_channel" == tmux ]] || return 1
+    now_handle="$(jq -er '.handle | strings | select(length > 0)' "$record" 2>/dev/null)" || return 1
+    now_identity="$(jq -er '
+        .identity.value | strings
+    ' "$record" 2>/dev/null)" || return 1
+    [[ "$now_identity" == "$target" ]] || return 1
+    session="$(tmux display-message -pt "$target" '#S' 2>/dev/null)" || return 1
+    [[ "$(tmux display-message -pt "$target" '#{pane_dead}' 2>/dev/null)" == 0 ]] || return 1
+    expected_handle="$(tmux_record_handle "$target" "$session")" || return 1
+    [[ "$now_handle" == "$expected_handle" ]]
+}
+
+# A pane can outlive its executor: the launcher deliberately parks the pane on
+# `sleep 86400` after the runtime exits.  Pane existence and pane-owned identity
+# proof are therefore not runtime liveness.  Walk only this pane's process tree
+# and require the actual interactive runtime before typing into an executor.
+tmux_executor_runtime_live() { # pane-id
+    local target="$1" pane_pid pid child comm args first
+    local -a queue=()
+
+    pane_pid="$(tmux display-message -pt "$target" '#{pane_pid}' 2>/dev/null)" || return 1
+    [[ "$pane_pid" =~ ^[0-9]+$ ]] || return 1
+    queue+=("$pane_pid")
+    while ((${#queue[@]} > 0)); do
+        pid="${queue[0]}"
+        queue=("${queue[@]:1}")
+        comm="$(ps -o comm= -p "$pid" 2>/dev/null | awk '{print $1}')"
+        args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+        first="${args%% *}"
+        first="${first##*/}"
+        case "$comm:$first" in
+            codex:*|claude:*|*:codex|*:claude) return 0 ;;
+        esac
+        while IFS= read -r child; do
+            [[ "$child" =~ ^[0-9]+$ ]] && queue+=("$child")
+        done < <(ps --ppid "$pid" -o pid= 2>/dev/null | awk '{print $1}')
+    done
+    return 1
+}
+
+ring_tmux() {
+    local root="$1" recipient="$2" sender="$3" message_id="$4" record="$5"
+    local target line nonce attempt deadline lock_fd expect_ack
+
+    target="$(jq -er '
+        .identity.value |
+        strings | select(length > 0)
+    ' "$record" 2>/dev/null)" || {
+        emit "$root" "$recipient" "$sender" "$message_id" failed \
+            "malformed reachability identity for $recipient"
+        return
+    }
+    command -v tmux >/dev/null 2>&1 || {
+        emit "$root" "$recipient" "$sender" "$message_id" no-channel \
+            'tmux command is unavailable'
+        return
+    }
+    # A registered window that is gone is the same condition Orca reports as `unresolved`
+    # — no unique live window for this seat. It gets the same word, not a new one.
+    tmux_target_current "$record" "$target" || {
+        emit "$root" "$recipient" "$sender" "$message_id" unresolved \
+            "no live tmux pane registered for $recipient: identity=$target"
+        return
+    }
+    if [[ "${recipient%%.*}" == executor ]] &&
+       ! tmux_executor_runtime_live "$target"; then
+        emit "$root" "$recipient" "$sender" "$message_id" unresolved \
+            "registered pane $target has no live codex or claude runtime for $recipient; close the retired pane and respawn the executor"
+        return
+    fi
+
+    nonce="$(printf '%04x%04x' "$((RANDOM & 65535))" "$(($$ & 65535))")"
+    # Executors need only the neutral cue that was measured to restart their reasoning
+    # loop. A prompt-acceptance hook can print an ACK while the executor stays asleep, so
+    # that ACK must never upgrade an executor wake to `rang`; mailbox effect is confirmed
+    # separately by mbox-wake after this transport returns.
+    if [[ "${recipient%%.*}" == executor ]]; then
+        expect_ack=no
+        line="$DOORBELL_TOKEN Guide: $REPOSITORY/guide/agent-reach.md. State: $root. Seat: $recipient. $nonce Read your mailbox now."
+    else
+        expect_ack=yes
+    # THE ACKNOWLEDGEMENT TOKEN IS NEVER WRITTEN INTO THE TEXT WE SEND. It is described
+    # instead — "the letters ACK, a hyphen, then <nonce>" — so the string the confirmation
+    # looks for cannot possibly appear in our own echo. The earlier design sent the nonce and
+    # excluded any line that also carried the doorbell token; a long line WRAPS in the pane,
+    # the nonce lands on a continuation row that no longer carries the token, and the ring
+    # reported `rang` off its own echo. Measured against a pane sitting at a shell prompt:
+    # nobody was home and the seat was reported successfully rung.
+        line="$DOORBELL_TOKEN Guide: $REPOSITORY/guide/agent-reach.md. State: $root. Seat: $recipient. $nonce typed by the mail transport, not by the owner. You have unanswered mail as '$recipient'. Read Message-ID $message_id now. Then, so the transport knows you saw this, print one line consisting of the three letters ACK, a hyphen, and then $nonce — nothing else on that line."
+    fi
+
+    # The deadline is shared across the attempts rather than restarted by each one, so
+    # three attempts cannot quietly become three times the wait an operator was promised.
+    deadline=$((SECONDS + TMUX_CONFIRM_SECONDS))
+    local attempt_window=$((TMUX_CONFIRM_SECONDS / TMUX_SUBMIT_ATTEMPTS))
+    local attempt_deadline
+    for ((attempt = 1; attempt <= TMUX_SUBMIT_ATTEMPTS; attempt++)); do
+        attempt_deadline=$((SECONDS + attempt_window))
+        ((attempt_deadline < deadline)) || attempt_deadline="$deadline"
+
+        # The body and the submit key are ONE indivisible act. Two doorbells ringing the
+        # same pane at once would otherwise interleave: both bodies land in the composer
+        # before either Enter, one malformed prompt is submitted and the other submission
+        # is blank. The lock is per pane, so rings to different agents never wait on each
+        # other, and it is held only across the send — never across the 90s wait.
+        exec {lock_fd}>"$root/.doorbell-tmux-$(printf '%s' "$target" | tr -c 'A-Za-z0-9' '_').lock" || {
+            emit "$root" "$recipient" "$sender" "$message_id" failed \
+                "could not open the tmux submission lock for $recipient"
+            return
+        }
+        if ! flock -w 30 "$lock_fd"; then
+            exec {lock_fd}>&-
+            emit "$root" "$recipient" "$sender" "$message_id" busy \
+                "another doorbell held the tmux submission lock for $recipient"
+            return
+        fi
+        # Re-read the record inside the lock: the seat may have moved or retired while we
+        # queued, and sending to the identity we read a minute ago would reach a stranger.
+        if ! tmux_target_current "$record" "$target"; then
+            flock -u "$lock_fd"; exec {lock_fd}>&-
+            emit "$root" "$recipient" "$sender" "$message_id" unresolved \
+                "reachability changed before the wake reached $recipient: identity=$target"
+            return
+        fi
+        # A stale, unsubmitted composer line must never hitch a ride on the
+        # doorbell's Enter.  C-u carries no instruction content; it only clears
+        # the current input before the neutral cue is typed.
+        if ! tmux send-keys -t "$target" C-u 2>/dev/null ||
+           ! tmux send-keys -t "$target" -- "$line" 2>/dev/null; then
+            flock -u "$lock_fd"; exec {lock_fd}>&-
+            emit "$root" "$recipient" "$sender" "$message_id" failed \
+                "tmux rejected the wake text for $recipient"
+            return
+        fi
+        sleep "$TMUX_SETTLE_SECONDS"
+        if ! tmux send-keys -t "$target" Enter 2>/dev/null; then
+            flock -u "$lock_fd"; exec {lock_fd}>&-
+            emit "$root" "$recipient" "$sender" "$message_id" failed \
+                "tmux rejected the wake submission for $recipient"
+            return
+        fi
+        flock -u "$lock_fd"
+        exec {lock_fd}>&-
+
+        if [[ "$expect_ack" == no ]]; then
+            emit "$root" "$recipient" "$sender" "$message_id" rang-unverified \
+                "nudged executor $recipient; mailbox processing is not yet confirmed"
+            return
+        fi
+
+        while ((SECONDS < attempt_deadline)); do
+            if tmux_agent_confirmed "$target" "$nonce"; then
+                emit "$root" "$recipient" "$sender" "$message_id" rang \
+                    "submitted Message-ID $message_id to $recipient and the agent acknowledged $nonce"
+                return
+            fi
+            # A pane that dies, or a seat that re-registers, mid-wait is not an
+            # unconfirmed ring — it is a seat that is no longer where we sent the mail.
+            tmux_target_current "$record" "$target" || {
+                emit "$root" "$recipient" "$sender" "$message_id" unresolved \
+                    "the registered tmux pane for $recipient went away during the wake: identity=$target"
+                return
+            }
+            sleep 2
+        done
+        ((SECONDS < deadline)) || break
+    done
+    emit "$root" "$recipient" "$sender" "$message_id" rang-unverified \
+        "submitted Message-ID $message_id to $recipient without an agent acknowledgement within ${TMUX_CONFIRM_SECONDS}s"
+}
+
+[[ "$#" -gt 0 && "$1" == doorbell ]] || die 64 'internal ring expects doorbell'
+shift
+run_doorbell "$@"

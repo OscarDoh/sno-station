@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly REPO_ROOT
+readonly ADDRESS_RE='^[a-z][a-z0-9-]{0,31}\.[a-z0-9][a-z0-9-]{0,63}@[a-z0-9][a-z0-9.-]{0,252}$'
+
+export PATH="$REPO_ROOT/vendor/bin${PATH:+:$PATH}"
+
+TEMP_FILES=()
+
+cleanup() {
+    local status=$?
+    local path
+
+    trap - EXIT HUP INT TERM
+    for path in "${TEMP_FILES[@]}"; do
+        if [[ -e "$path" || -L "$path" ]]; then
+            rm -f -- "$path" || {
+                printf 'reach-deliver: failed to remove temporary file: %s\n' \
+                    "$path" >&2
+                ((status == 0)) && status=74
+            }
+        fi
+    done
+    exit "$status"
+}
+
+die() {
+    local status="$1"
+    shift
+
+    printf 'reach-deliver: %s\n' "$*" >&2
+    exit "$status"
+}
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+(($# == 0)) ||
+    die 64 'accepts an RFC 5322 message on stdin and no arguments'
+
+for dependency in maddr mhdr msed; do
+    command -v "$dependency" >/dev/null 2>&1 ||
+        die 69 "required vendored tool is unavailable: $dependency"
+done
+
+if [[ -n "${SNO_REACH_ROOT:-}" ]]; then
+    REACH_ROOT="$SNO_REACH_ROOT"
+elif [[ -n "${HOME:-}" ]]; then
+    REACH_ROOT="$HOME/.local/state/sno-reach"
+else
+    die 78 'SNO_REACH_ROOT is unset and HOME is unavailable'
+fi
+readonly REACH_ROOT
+
+input_file="$(mktemp "${TMPDIR:-/tmp}/reach-deliver.input.XXXXXXXXXX")" ||
+    die 74 'could not create a private input snapshot'
+TEMP_FILES+=("$input_file")
+cat >"$input_file" ||
+    die 74 "could not snapshot the input message: $input_file"
+
+NO_REPLY=no
+set +e
+no_reply_value="$(mhdr -h x-no-reply "$input_file" 2>/dev/null)"
+header_status=$?
+set -e
+case "$header_status" in
+    0)
+        [[ "$no_reply_value" == true ]] ||
+            die 65 'X-No-Reply must be exactly true'
+        NO_REPLY=yes
+        ;;
+    1) ;;
+    *) die 65 'could not inspect X-No-Reply' ;;
+esac
+
+recipient_file="$(mktemp "${TMPDIR:-/tmp}/reach-deliver.recipients.XXXXXXXXXX")" ||
+    die 74 'could not create a private recipient snapshot'
+TEMP_FILES+=("$recipient_file")
+if ! maddr -a -h to:cc:bcc: "$input_file" >"$recipient_file"; then
+    die 65 'could not extract To, Cc, and Bcc recipients'
+fi
+
+declare -A SEEN_RECIPIENTS=()
+RECIPIENTS=()
+while IFS= read -r recipient; do
+    [[ "$recipient" =~ $ADDRESS_RE ]] ||
+        die 65 "invalid local recipient address: $recipient"
+    if [[ -z "${SEEN_RECIPIENTS[$recipient]+present}" ]]; then
+        SEEN_RECIPIENTS["$recipient"]=1
+        RECIPIENTS+=("$recipient")
+    fi
+done <"$recipient_file"
+
+((${#RECIPIENTS[@]} > 0)) ||
+    die 65 'message has no To, Cc, or Bcc recipients'
+
+MAILDIRS=()
+for recipient in "${RECIPIENTS[@]}"; do
+    maildir="$REACH_ROOT/$recipient"
+    for component in tmp new cur; do
+        [[ -d "$maildir/$component" ]] ||
+            die 73 "recipient Maildir component is unavailable: $maildir/$component"
+    done
+    MAILDIRS+=("$maildir")
+done
+
+for index in "${!RECIPIENTS[@]}"; do
+    recipient="${RECIPIENTS[$index]}"
+    maildir="${MAILDIRS[$index]}"
+
+    stripped_file="$(mktemp "$maildir/tmp/reach-deliver.strip.XXXXXXXXXX")" ||
+        die 74 "could not stage privacy headers for recipient: $recipient"
+    TEMP_FILES+=("$stripped_file")
+    staged_file="$(mktemp "$maildir/tmp/reach-deliver.XXXXXXXXXX")" ||
+        die 74 "could not stage a message for recipient: $recipient"
+    TEMP_FILES+=("$staged_file")
+
+    if ! msed '/bcc:delivered-to/d' "$input_file" >"$stripped_file"; then
+        die 74 "could not remove private delivery headers for recipient: $recipient"
+    fi
+    if ! msed "/delivered-to/a/$recipient/" "$stripped_file" >"$staged_file"; then
+        die 74 "could not add Delivered-To for recipient: $recipient"
+    fi
+
+    if [[ "$NO_REPLY" == yes ]]; then
+        destination="$maildir/cur/${staged_file##*/}:2,R"
+    else
+        destination="$maildir/new/${staged_file##*/}"
+    fi
+    if ! ln -- "$staged_file" "$destination"; then
+        die 74 "hard-link delivery failed for recipient: $recipient"
+    fi
+    rm -- "$staged_file" ||
+        die 74 "delivered but could not remove staging file for recipient: $recipient"
+    rm -- "$stripped_file" ||
+        die 74 "delivered but could not remove header staging file for recipient: $recipient"
+done

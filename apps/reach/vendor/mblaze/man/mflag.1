@@ -1,0 +1,118 @@
+.Dd July 22, 2016
+.Dt MFLAG 1
+.Os
+.Sh NAME
+.Nm mflag
+.Nd manipulate maildir message flags
+.Sh SYNOPSIS
+.Nm
+.Op Fl DFPRST
+.Op Fl X Ar str
+.br
+.Op Fl dfprst
+.Op Fl x Ar str
+.br
+.Op Fl v
+.Op Ar msgs\ ...
+.Sh DESCRIPTION
+.Nm
+changes the flags of the specified maildir
+.Ar msgs
+according to the options supplied.
+.Po
+See
+.Xr mmsg 7
+for the message argument syntax.
+.Pc
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl D
+Mark
+.Ar msgs
+as draft.
+.It Fl F
+Mark
+.Ar msgs
+as flagged.
+.It Fl P
+Mark
+.Ar msgs
+as passed
+.Pq resent/forwarded/bounced .
+.It Fl R
+Mark
+.Ar msgs
+as replied.
+.It Fl S
+Mark
+.Ar msgs
+as seen.
+.It Fl T
+Mark
+.Ar msgs
+as trashed.
+.It Fl X Ar str
+Mark
+.Ar msgs
+with the characters in
+.Ar str .
+.It Fl d
+Unmark
+.Ar msgs
+as draft.
+.It Fl f
+Unmark
+.Ar msgs
+as flagged.
+.It Fl p
+Unmark
+.Ar msgs
+as passed
+.Pq resent/forwarded/bounced .
+.It Fl r
+Unmark
+.Ar msgs
+as replied.
+.It Fl s
+Unmark
+.Ar msgs
+as seen.
+.It Fl t
+Unmark
+.Ar msgs
+as trashed.
+.It Fl x Ar str
+Unmark
+.Ar msgs
+with the characters in
+.Ar str .
+.Pq Remember to use uppercase characters.
+.It Fl v
+Read messages from the standard input
+.Pq or use the whole current sequence, if used interactively
+and print the transformed list of filenames.
+This can be used to keep the sequence intact in the case of renames.
+.El
+.Pp
+Note that the link to
+.Pa ${MBLAZE:-$HOME/.mblaze}/cur
+is updated in all cases, when affected.
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr mmsg 7
+.Pp
+.Lk https://cr.yp.to/proto/maildir.html "Using maildir format"
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

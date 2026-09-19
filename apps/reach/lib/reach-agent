@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Runs inside the newly created pane, after its parent publishes registration.
+set -Eeuo pipefail
+kind="${1:?agent kind required}"
+context="${2:?startup context required}"
+record="$SNO_REACH_ROOT/$SNO_REACH_ADDR/reachable.json"
+deadline=$((SECONDS + 10))
+while [[ ! -f "$record" ]]; do
+    ((SECONDS < deadline)) || { printf 'reach: spawn registration never arrived\n' >&2; exit 75; }
+    sleep 0.1
+done
+case "$kind" in
+    codex) exec codex --dangerously-bypass-approvals-and-sandbox "$context" ;;
+    # A prompt suggestion sits in the composer and reads as unsubmitted text to call.
+    claude) CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0 exec claude --dangerously-skip-permissions --session-id "$SNO_REACH_SESSION_ID" "$context" ;;
+    hermes) exec hermes chat --yolo --query "$context" ;;
+    openclaw) exec openclaw tui --message "$context" ;;
+    *) exec "$kind" "$context" ;;
+esac

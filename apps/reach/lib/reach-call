@@ -1,0 +1,916 @@
+#!/usr/bin/env bash
+# message-agent-window.sh — send into a live agent window and prove it landed, read what the
+# window has produced since a cursor, or sit and watch it line by line.
+#
+# A send counts only after the selected seat produces its own receipt.
+set -Eeuo pipefail
+umask 077
+
+readonly EXIT_USAGE=2
+readonly EXIT_SEND_REFUSED=3
+readonly EXIT_UNVERIFIED=4
+readonly EXIT_UNRELIABLE=5
+readonly TMUX_CAPTURE_LIMIT=$((1024 * 1024))
+readonly TMUX_SETTLE_SECONDS=0.3
+REACH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/bin/sno-reach"
+readonly REACH
+
+# Internal pipe-pane writer. The lifetime lock, PID, process start time, and
+# capture inode let the parent prove that tmux still owns this exact writer.
+if [[ "${1:-}" == --capture-writer ]]; then
+	[[ $# -eq 4 ]] || exit 2
+	lease_lock="$2" pid_file="$3" capture_file="$4"
+	exec 8>"$lease_lock"
+	flock -n 8 || exit 73
+	pid_tmp="${pid_file}.tmp.$$"
+	printf '%s\n' "$$" >"$pid_tmp"
+	mv -f -- "$pid_tmp" "$pid_file"
+	exec cat >>"$capture_file"
+fi
+
+usage() {
+	cat >&2 <<'USAGE'
+usage: message-agent-window.sh --terminal <handle> [--text <message>] [options]
+
+Modes:
+  --text <message>       send it, then wait for the window to react
+  (no --text)            read only: what appeared since --since, or since now
+  --follow               watch line by line, printing new output as it arrives
+
+Options:
+  --terminal <handle>    required; mailbox address or tmux pane id (%n)
+  --expect <regex>       extended regex the NEW output must match to count as verified
+  --since <cursor>       start from this cursor instead of the current position
+  --timeout <n>     how long to wait or watch (default 180; --follow default 600)
+  --every <n>        seconds between reads (default 5; --follow default 2)
+  --idle <n>        in --follow, stop after this long with no new output (default: never)
+  --ring <address>       with --follow, post mailbox cards when this is a mailbox address
+  --no-wait              send and return immediately; delivery stays unverified
+
+Exit codes:
+  0  delivered and verified, or a clean read/watch   3  the runtime refused the send
+  2  usage error                                     4  sent, but nothing came back in time
+  5  the window could not be read at all
+USAGE
+}
+
+terminal="" text="" expect="" since="" ring_address=""
+timeout_secs="" poll_secs="" idle_secs=""
+no_wait=false have_text=false follow=false
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--terminal) terminal="${2:?--terminal needs a value}"; shift 2 ;;
+		--text) text="${2-}"; have_text=true; shift 2 ;;
+		--expect) expect="${2:?--expect needs a value}"; shift 2 ;;
+		--since) since="${2:?--since needs a value}"; shift 2 ;;
+		--timeout) timeout_secs="${2:?--timeout needs a value}"; shift 2 ;;
+		--every) poll_secs="${2:?--every needs a value}"; shift 2 ;;
+		--idle) idle_secs="${2:?--idle needs a value}"; shift 2 ;;
+		--ring) ring_address="${2:?--ring needs a value}"; shift 2 ;;
+		--follow) follow=true; shift ;;
+		--no-wait) no_wait=true; shift ;;
+		--help|-h) usage; exit 0 ;;
+		*) printf 'unknown argument: %s\n' "$1" >&2; usage; exit "$EXIT_USAGE" ;;
+	esac
+done
+
+[[ -n "$terminal" ]] || { printf -- '--terminal is required\n' >&2; usage; exit "$EXIT_USAGE"; }
+[[ "$terminal" =~ ^%[0-9]+$ || "$terminal" =~ ^[a-z][a-z0-9-]{0,31}\.[a-z0-9][a-z0-9-]{0,63}@[a-z0-9][a-z0-9.-]{0,252}$ ]] || {
+	printf 'tmux pane handle must have the form %%<digits>: %s\n' "$terminal" >&2
+	exit "$EXIT_USAGE"
+}
+if [[ "$follow" == true ]]; then
+	timeout_secs="${timeout_secs:-600}"; poll_secs="${poll_secs:-2}"
+else
+	timeout_secs="${timeout_secs:-180}"; poll_secs="${poll_secs:-5}"
+fi
+[[ "$timeout_secs" =~ ^[0-9]+$ && "$poll_secs" =~ ^[1-9][0-9]*$ ]] || {
+	printf 'timeout and poll must be whole seconds, poll at least 1\n' >&2; exit "$EXIT_USAGE"; }
+[[ -z "$idle_secs" || "$idle_secs" =~ ^[0-9]+$ ]] || {
+	printf 'idle must be whole seconds\n' >&2; exit "$EXIT_USAGE"; }
+[[ -z "$ring_address" || "$follow" == true ]] || {
+	printf -- '--ring is valid only with --follow\n' >&2; exit "$EXIT_USAGE"; }
+[[ -z "$ring_address" || "$ring_address" =~ ^[a-z][a-z0-9-]{0,31}\.[a-z0-9][a-z0-9-]{0,63}@[a-z0-9][a-z0-9.-]{0,252}$ ]] || {
+	printf 'invalid mailbox address for --ring: %s\n' "$ring_address" >&2
+	exit "$EXIT_USAGE"
+}
+if [[ "$have_text" == true && ! "$text" =~ [^[:space:]] ]]; then
+	printf '%s\n' '--text must contain a non-whitespace message' >&2
+	exit "$EXIT_USAGE"
+fi
+
+# Mailbox addresses select a transport from the registered seat, never from config.
+emit_watch_event() {
+	local state="$1" detail="${2:-}"
+	printf '# EVENT: window %s terminal=%s%s\n' \
+		"$state" "$terminal" "${detail:+ $detail}"
+}
+
+ring_watch_event() {
+	local state="$1" detail="$2" message_id journey attempt
+	[[ -n "$ring_address" ]] || return 0
+	message_id="<agent-window-$(printf '%s' "$terminal" | tr -cd 'a-zA-Z0-9')-${state}-$(date -u '+%s%N')@localhost>"
+	journey="agent-window-$(printf '%s' "$terminal" | tr -cd 'a-zA-Z0-9')"
+	for attempt in 1 2; do
+		if printf 'From: AGENT WINDOW <%s>\nTo: watcher <%s>\nSubject: [DECISION] agent window %s: %s\nDate: %s\nMessage-ID: %s\nX-Work: %s\nX-Type: decision\nX-Name: agent-window\n\nWindow %s entered the %s state. %s\n' \
+			"$ring_address" "$ring_address" "$state" "$terminal" \
+			"$(date -u '+%a, %d %b %Y %H:%M:%S +0000')" "$message_id" "$journey" \
+			"$terminal" "$state" "$detail" \
+			| timeout 90 "$REACH" send --as "$ring_address" >/dev/null 2>&1; then
+			return 0
+		fi
+		[[ "$attempt" -eq 2 ]] || sleep 1
+	done
+	return 1
+}
+
+ring_or_fail() {
+	local state="$1" detail="$2"
+	if ! ring_watch_event "$state" "$detail"; then
+		emit_watch_event ring-failed "state=$state"
+		printf 'mailbox ring failed twice for %s while reporting %s\n' "$ring_address" "$state" >&2
+		exit "$EXIT_UNRELIABLE"
+	fi
+}
+
+if [[ "$terminal" != %* ]]; then
+    record="${SNO_REACH_ROOT:-$HOME/.local/state/sno-reach}/$terminal/reachable.json"
+    [[ -f "$record" && ! -L "$record" ]] || {
+        printf 'no reachability record for %s\n' "$terminal" >&2; exit "$EXIT_UNRELIABLE";
+    }
+    channel="$(jq -er --arg address "$terminal" 'select(.address == $address) | .channel' "$record")" || exit "$EXIT_UNRELIABLE"
+    case "$channel" in
+        acp)
+            # shellcheck source=reach-call-acp.sh
+            source "$(dirname -- "${BASH_SOURCE[0]}")/reach-call-acp.sh"
+            exit $? ;;
+        tmux) terminal="$(jq -er 'select(.identity.kind == "tmux-pane") | .identity.value | select(test("^%[0-9]+$"))' "$record")" || exit "$EXIT_UNRELIABLE" ;;
+        *) printf 'unsupported reachability channel: %s\n' "$channel" >&2; exit "$EXIT_UNRELIABLE" ;;
+    esac
+fi
+
+for tool in jq perl tmux flock stat readlink; do
+	command -v "$tool" >/dev/null || { printf 'required tool is missing: %s\n' "$tool" >&2; exit "$EXIT_UNRELIABLE"; }
+done
+
+# ── tmux state ────────────────────────────────────────────────────────────────
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+readonly SCRIPT_PATH
+
+tmux has-session 2>/dev/null || {
+	printf 'no tmux server is running; window %s cannot be read\n' "$terminal" >&2
+	exit "$EXIT_UNRELIABLE"
+}
+tmux display-message -pt "$terminal" '#{pane_id}' >/dev/null 2>&1 || {
+	printf 'tmux pane does not exist: %s\n' "$terminal" >&2
+	exit "$EXIT_UNRELIABLE"
+}
+
+ensure_pane_token() {
+	local token candidate
+	token="$(tmux show-options -p -v -t "$terminal" @agent-window-token 2>/dev/null || true)"
+	if [[ -z "$token" ]]; then
+		candidate="aw-$(date +%s%N)-$$-$RANDOM"
+		tmux set-option -p -o -t "$terminal" @agent-window-token "$candidate" 2>/dev/null || true
+		token="$(tmux show-options -p -v -t "$terminal" @agent-window-token 2>/dev/null || true)"
+	fi
+	[[ "$token" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+	printf '%s' "$token"
+}
+
+pane_token="$(ensure_pane_token)" || {
+	printf 'could not establish a stable identity for tmux pane %s\n' "$terminal" >&2
+	exit "$EXIT_UNRELIABLE"
+}
+state_root="${SNO_REACH_ROOT:-$HOME/.local/state/sno-reach}/.channels/tmux"
+state_dir="$state_root/$pane_token"
+mkdir -p -- "$state_dir"
+chmod 0700 -- "$state_root" "$state_dir" 2>/dev/null || true
+capture_file="$state_dir/capture.log"
+base_file="$state_dir/capture.base"
+capture_lock="$state_dir/capture.lock"
+setup_lock="$state_dir/setup.lock"
+send_lock="$state_dir/send.lock"
+lease_lock="$state_dir/lease.lock"
+pid_file="$state_dir/writer.pid"
+owner_file="$state_dir/owner.tsv"
+: >>"$capture_file"
+[[ -s "$base_file" ]] || printf '0\n' >"$base_file"
+
+process_start_ticks() {
+	local pid="$1"
+	if [[ -d /proc ]]; then
+		awk '{print $22}' "/proc/$pid/stat" 2>/dev/null
+	else
+		ps -o lstart= -p "$pid" 2>/dev/null
+	fi
+}
+
+capture_owner_valid() {
+	local token lease pid start inode current_start current_inode fd_inode lock_rc=0
+	local fd_fields field device='' file_inode=''
+	[[ -s "$owner_file" ]] || return 1
+	IFS=$'\t' read -r token lease pid start inode <"$owner_file" || return 1
+	[[ "$token" == "$pane_token" && "$lease" =~ ^[A-Za-z0-9._-]+$ && "$pid" =~ ^[0-9]+$ ]] || return 1
+	[[ "$(tmux display-message -pt "$terminal" '#{pane_pipe}' 2>/dev/null || echo 0)" == 1 ]] || return 1
+	kill -0 "$pid" 2>/dev/null || return 1
+	current_start="$(process_start_ticks "$pid")"
+	[[ -n "$current_start" && "$current_start" == "$start" ]] || return 1
+	current_inode="$(stat -Lc '%d:%i' "$capture_file" 2>/dev/null || true)"
+	if [[ -d /proc ]]; then
+		fd_inode="$(stat -Lc '%d:%i' "/proc/$pid/fd/1" 2>/dev/null || true)"
+	else
+		fd_fields="$(/usr/sbin/lsof -p "$pid" -a -d 1 -F Din 2>/dev/null)" || return 1
+		while IFS= read -r field; do
+			case "$field" in D0x*) device="${field#D0x}" ;; i*) file_inode="${field#i}" ;; esac
+		done <<<"$fd_fields"
+		[[ "$device" =~ ^[0-9a-fA-F]+$ && "$file_inode" =~ ^[0-9]+$ ]] || return 1
+		printf -v fd_inode '%d:%s' "$((16#$device))" "$file_inode"
+	fi
+	[[ -n "$current_inode" && "$current_inode" == "$inode" && "$fd_inode" == "$inode" ]] || return 1
+	flock -n -E 75 "$lease_lock" true 2>/dev/null || lock_rc=$?
+	[[ "$lock_rc" -eq 75 ]]
+}
+
+arm_capture_pipe() (
+	local lease writer pid start inode owner_tmp
+	exec 6>"$setup_lock"
+	flock -w 5 6 || return 1
+	if [[ "$(tmux display-message -pt "$terminal" '#{pane_pipe}' 2>/dev/null || echo 0)" == 1 ]]; then
+		capture_owner_valid
+		return
+	fi
+	flock -n "$lease_lock" true 2>/dev/null || return 1
+	lease="lease-$(date +%s%N)-$$-$RANDOM"
+	: >"$pid_file"
+	: >"$owner_file"
+	printf -v writer '%q --capture-writer %q %q %q' \
+		"$SCRIPT_PATH" "$lease_lock" "$pid_file" "$capture_file"
+	tmux pipe-pane -o -t "$terminal" "$writer" 2>/dev/null || return 1
+	for _ in {1..40}; do
+		[[ -s "$pid_file" ]] && break
+		sleep 0.05
+	done
+	[[ -s "$pid_file" ]] || return 1
+	pid="$(<"$pid_file")"
+	[[ "$pid" =~ ^[0-9]+$ ]] || return 1
+	start="$(process_start_ticks "$pid")"
+	inode="$(stat -Lc '%d:%i' "$capture_file" 2>/dev/null || true)"
+	[[ -n "$start" && -n "$inode" ]] || return 1
+	owner_tmp="${owner_file}.tmp.$$"
+	printf '%s\t%s\t%s\t%s\t%s\n' "$pane_token" "$lease" "$pid" "$start" "$inode" >"$owner_tmp"
+	mv -f -- "$owner_tmp" "$owner_file"
+	capture_owner_valid
+)
+
+tmux_rotate_capture() {
+	local size drop base tmp tmp_base lock_rc
+	exec 9>"$capture_lock"
+	flock 9
+	size="$(wc -c <"$capture_file" 2>/dev/null || echo 0)"
+	if [[ "$size" -le "$TMUX_CAPTURE_LIMIT" ]]; then
+		flock -u 9; exec 9>&-; return 0
+	fi
+	capture_owner_valid || { flock -u 9; exec 9>&-; return 1; }
+	tmux pipe-pane -t "$terminal" 2>/dev/null || { flock -u 9; exec 9>&-; return 1; }
+	for _ in {1..40}; do
+		lock_rc=0
+		flock -n "$lease_lock" true 2>/dev/null || lock_rc=$?
+		[[ "$lock_rc" -eq 0 ]] && break
+		sleep 0.05
+	done
+	[[ "$lock_rc" -eq 0 ]] || { flock -u 9; exec 9>&-; return 1; }
+	size="$(wc -c <"$capture_file" 2>/dev/null || echo 0)"
+	drop=$(( size - TMUX_CAPTURE_LIMIT ))
+	base="$(<"$base_file")"
+	tmp="$(mktemp "${capture_file}.rotate.XXXXXX")"
+	tmp_base="$(mktemp "${base_file}.rotate.XXXXXX")"
+	tail -c "$TMUX_CAPTURE_LIMIT" "$capture_file" >"$tmp"
+	printf '%s\n' "$(( base + drop ))" >"$tmp_base"
+	mv -f -- "$tmp" "$capture_file"
+	mv -f -- "$tmp_base" "$base_file"
+	: >"$owner_file"; : >"$pid_file"
+	arm_capture_pipe || { flock -u 9; exec 9>&-; return 1; }
+	flock -u 9
+	exec 9>&-
+}
+
+tmux_ensure_pipe() {
+	local piped
+	piped="$(tmux display-message -pt "$terminal" '#{pane_pipe}' 2>/dev/null || echo 0)"
+	if [[ "$piped" == 1 ]]; then
+		if ! capture_owner_valid; then
+			capture_mode="screen-fallback"
+			return 0
+		fi
+	else
+		arm_capture_pipe || return 1
+	fi
+	tmux_rotate_capture
+}
+
+format_cursor() { printf '%s:%s' "$pane_token" "$1"; }
+
+tmux_screen_snapshot() (
+	local cursor="$1" offset=0 pane_status cursor_row full='' next='' state="$state_dir/screen.json"
+	if [[ -n "$cursor" ]]; then
+		[[ "$cursor" == "$pane_token:screen:${cursor##*:}" && "${cursor##*:}" =~ ^[0-9]+$ ]] || {
+			printf 'cursor mode or pane incarnation changed; read without --since to start screen-fallback\n' >&2
+			return 1
+		}
+		offset="${cursor##*:}"
+	fi
+	exec 9>"$capture_lock"
+	flock 9 || return 1
+	if [[ -n "$cursor" && ! -f "$state" ]]; then
+		printf 'screen cursor has no retained anchor; read without --since\n' >&2
+		return 1
+	fi
+	trap 'rm -f -- "$full" "$next"' EXIT
+	full="$(mktemp "$state_dir/screen-full.XXXXXX")" || return 1
+	next="$(mktemp "$state_dir/screen-next.XXXXXX")" || return 1
+	tmux capture-pane -p -S - -t "$terminal" >"$full" || return 1
+	pane_status="$(tmux display-message -pt "$terminal" '#{pane_dead}')" || return 1
+	cursor_row="$(tmux display-message -pt "$terminal" '#{e|+:#{history_size},#{cursor_y}}')" || return 1
+	# Compare screen contents, not screen height. Journal observed deltas so old
+	# cursors stay cumulative across other readers, further scrolling and repaint.
+	jq -s --rawfile screen "$full" --argjson limit "$TMUX_CAPTURE_LIMIT" --argjson cursorRow "$cursor_row" '
+		($screen | split("\n") | until(length == 0 or (.[-1] | test("^\\s*$") | not); .[:-1]) |
+		 # The final cursor row is still being composed, not a completed output line.
+		 if length == $cursorRow + 1 then .[:-1] else . end) as $rows |
+		(.[0] // {anchor: $rows, lines: [], base: 0}) |
+		.anchor as $old |
+		first(range(0; ($old|length) + 1) as $shift |
+			$old[$shift:] as $suffix |
+			select($suffix == $rows[:($suffix|length)]) | ($suffix|length)) as $overlap |
+		.lines += $rows[$overlap:] | .anchor = $rows |
+		(.lines|length) as $count |
+		.lines = ([foreach (.lines | reverse[]) as $row
+			(0; . + ($row|utf8bytelength) + 1; if . <= $limit then $row else empty end)] | reverse) |
+		.base += ($count - (.lines|length))
+	' "$( [[ -f "$state" ]] && printf '%s' "$state" || printf /dev/null )" >"$next" || return 1
+	mv -f -- "$next" "$state" || return 1
+	jq -e --arg token "$pane_token" --arg cursor "$cursor" --arg dead "$pane_status" \
+		--argjson offset "$offset" '
+		(.base + (.lines|length)) as $count |
+		if $cursor != "" and ($offset < .base or $offset > $count) then
+			error("screen cursor is outside retained output; read without --since")
+		else (if $cursor == "" then [] else .lines[($offset - .base):] end) as $new |
+		{cursor: ($token + ":screen:" + ($count|tostring)),
+		 oldestCursor: ($token + ":screen:" + (.base|tostring)), mode: "screen-fallback",
+		 status: (if $dead == "1" then "exited" else "running" end),
+		 screen: (if $cursor == "" then (.anchor|join("\n")) else "" end),
+		 lines: $new, newLineCount: ($new|length), endedWithNewline: true}
+		end' "$state"
+)
+
+tmux_snapshot() {
+	local cursor="$1" base size latest offset local_cursor read_length pane_status chunk screen_chunk
+	local cursor_token capture_mode=byte-capture
+	tmux display-message -pt "$terminal" '#{pane_id}' >/dev/null 2>&1 || return 1
+	# A screen cursor stays a screen cursor even if the foreign pipe later exits.
+	if [[ "$cursor" == "$pane_token":screen:* ]]; then
+		tmux_screen_snapshot "$cursor"
+		return
+	fi
+	tmux_ensure_pipe || return 1
+	if [[ "$capture_mode" == screen-fallback ]]; then
+		tmux_screen_snapshot "$cursor"
+		return
+	fi
+	exec 9>"$capture_lock"
+	flock 9
+	base="$(<"$base_file")"
+	size="$(wc -c <"$capture_file" 2>/dev/null || echo 0)"
+	latest=$(( base + size ))
+	pane_status="$( [[ "$(tmux display-message -pt "$terminal" '#{pane_dead}' 2>/dev/null || echo 1)" == 1 ]] && echo exited || echo running )"
+	chunk="$(mktemp "${TMPDIR:-/tmp}/agent-window-chunk.XXXXXX")"
+	screen_chunk="$(mktemp "${TMPDIR:-/tmp}/agent-window-screen.XXXXXX")"
+	: >"$chunk"; : >"$screen_chunk"
+	if [[ -n "$cursor" ]]; then
+		[[ "$cursor" == *:* ]] || { printf 'cursor must have the form <pane-token>:<offset>: %s\n' "$cursor" >&2; rm -f -- "$chunk" "$screen_chunk"; flock -u 9; exec 9>&-; return 1; }
+		cursor_token="${cursor%%:*}"
+		offset="${cursor##*:}"
+		[[ "$cursor" == "$pane_token:$offset" && "$cursor_token" == "$pane_token" && "$offset" =~ ^[0-9]+$ ]] || { printf 'cursor belongs to another pane incarnation or mode: %s\n' "$cursor" >&2; rm -f -- "$chunk" "$screen_chunk"; flock -u 9; exec 9>&-; return 1; }
+		if [[ "$offset" -lt "$base" ]]; then
+			printf 'cursor is older than retained output (cursor=%s oldestCursor=%s)\n' "$cursor" "$(format_cursor "$base")" >&2
+			rm -f -- "$chunk" "$screen_chunk"; flock -u 9; exec 9>&-; return 1
+		fi
+		if [[ "$offset" -gt "$latest" ]]; then
+			printf 'cursor is newer than captured output (cursor=%s latestCursor=%s)\n' "$cursor" "$(format_cursor "$latest")" >&2
+			rm -f -- "$chunk" "$screen_chunk"; flock -u 9; exec 9>&-; return 1
+		fi
+		local_cursor=$(( offset - base ))
+		read_length=$(( size - local_cursor ))
+		if [[ "$read_length" -gt 0 ]]; then
+			tail -c "+$(( local_cursor + 1 ))" "$capture_file" 2>/dev/null \
+				| head -c "$read_length" >"$chunk" 2>/dev/null || true
+		fi
+	else
+		tmux capture-pane -p -S - -t "$terminal" >"$screen_chunk" 2>/dev/null || true
+	fi
+	jq -n --arg cursor "$(format_cursor "$latest")" --arg oldest "$(format_cursor "$base")" \
+		--arg status "$pane_status" --rawfile text "$chunk" --rawfile screen "$screen_chunk" \
+		'{cursor: $cursor, oldestCursor: $oldest, status: $status, screen: $screen,
+		  lines: ($text | if . == "" then [] else (sub("\n$"; "") | split("\n")) end),
+		  newLineCount: ($text | if . == "" then 0 else (sub("\n$"; "") | split("\n") | length) end),
+		  endedWithNewline: ($text | endswith("\n"))}'
+	rm -f -- "$chunk" "$screen_chunk"
+	flock -u 9
+	exec 9>&-
+}
+
+completion_popup_present() {
+	local screen
+	screen="$(tmux capture-pane -p -t "$terminal" 2>/dev/null || true)"
+	printf '%s\n' "$screen" | grep -Fq 'no matches' && \
+		printf '%s\n' "$screen" | grep -Eqi 'enter insert.*esc close'
+}
+
+composer_has_text() {
+	local screen
+	screen="$(tmux capture-pane -p -t "$terminal" 2>/dev/null || true)"
+	printf '%s\n' "$screen" | perl -CSD -ne '
+		if (/^\s*[\x{203A}\x{276F}]\s*(.*)$/) { $last = $1 }
+		END {
+			$last //= q{};
+			$last =~ s/^\s+|\s+$//g;
+			exit(($last ne q{} && $last ne q{Ask Codex to do anything}) ? 0 : 1);
+		}
+	'
+}
+
+tmux_submit() {
+	local screen_compact payload_compact payload_suffix
+	completion_popup_present || return 1
+	screen_compact="$(tmux capture-pane -p -t "$terminal" 2>/dev/null | tr -d '[:space:]')"
+	payload_compact="$(printf '%s' "$sent_payload" | tr -d '[:space:]')"
+	payload_suffix="$payload_compact"
+	if [[ ${#payload_compact} -gt 64 ]]; then payload_suffix="${payload_compact: -64}"; fi
+	[[ -n "$payload_suffix" && "$screen_compact" == *"$payload_suffix"* ]] || return 1
+	tmux send-keys -t "$terminal" Escape 2>/dev/null || return 1
+	sleep 0.1
+	tmux send-keys -t "$terminal" C-m 2>/dev/null || return 1
+}
+
+tmux_send() {
+	# -l sends the payload literally, so a message containing "Enter", ";" or "C-c"
+	# is text and not a key sequence. Enter is a separate, explicit keystroke.
+	# C-m, not the Enter key name. Measured on a coding TUI: send-keys Enter left
+	# the message sitting in the composer, and C-m — a literal carriage return —
+	# submitted it immediately. The key name is translated against the pane's
+	# current keyboard mode; the control character is not.
+	tmux send-keys -t "$terminal" -l -- "$sent_payload" 2>/dev/null || return 1
+	# Let the TUI finish handling the text burst before submission, as ring does.
+	sleep "$TMUX_SETTLE_SECONDS"
+	tmux send-keys -t "$terminal" C-m 2>/dev/null || return 1
+	printf '%s' "${#sent_payload}"
+}
+
+snapshot() { tmux_snapshot "$1"; }
+submit_again() { tmux_submit; }
+send_text() { tmux_send; }
+
+# ── procedure ─────────────────────────────────────────────────────────────────
+delivery_receipt=""
+sent_payload="$text"
+if [[ "$have_text" == true ]]; then
+	exec 7>"$send_lock"
+	if ! flock -n 7; then
+		printf 'another send is already active for tmux pane %s\n' "$terminal" >&2
+		exit "$EXIT_SEND_REFUSED"
+	fi
+	# A draft or a suggestion in the composer would be glued to the message: clear it.
+	if composer_has_text; then
+		tmux send-keys -t "$terminal" C-u 2>/dev/null || true
+	fi
+	delivery_receipt="REACH-RECEIPT-$(date +%s%N)-$$-$RANDOM"
+	pane_command="$(tmux display-message -pt "$terminal" '#{pane_current_command}' 2>/dev/null || true)"
+	case "$pane_command" in
+		bash|zsh|sh|dash|ksh)
+			sent_payload="printf '%s\\n' '$delivery_receipt'; $text"
+			;;
+		*)
+			sent_payload="First output exactly $delivery_receipt to confirm receipt. Then do this: $text"
+			;;
+	esac
+fi
+
+baseline="$(snapshot "" || true)"
+[[ -n "$baseline" ]] || { printf 'could not read tmux pane %s\n' "$terminal" >&2; exit "$EXIT_UNRELIABLE"; }
+cursor_before="${since:-$(printf '%s' "$baseline" | jq -r '.cursor')}"
+status_before="$(printf '%s' "$baseline" | jq -r '.status')"
+baseline_screen="$(printf '%s' "$baseline" | jq -r '.screen // ""')"
+if [[ "$(printf '%s' "$baseline" | jq -r '.mode // ""')" == screen-fallback || "$cursor_before" == *:screen:* ]]; then
+	printf 'tmux pane %s: screen-fallback; foreign output pipe is untouched; scrollback may drop old lines\n' "$terminal" >&2
+fi
+if [[ -n "$since" ]]; then
+	snapshot "$since" >/dev/null || exit "$EXIT_UNRELIABLE"
+fi
+
+# A TUI repaints its spinner character by character, and a byte capture turns
+# that into lines of shredded words — "WWo•Wor•Work•Worki•Workin•Working". They
+# carry letters, so "has no letter" does not catch them. Strip the spinner
+# tokens and the progress punctuation; if what is left is a fifth of the line or
+# less, the line was debris. Display only — never in front of --expect, because
+# a filter that can hide an answer must not sit on a verification path.
+drop_spinner_debris() {
+	perl -CSD -ne '
+		my $line = $_; chomp $line;
+		my $bare = $line; $bare =~ s/\s+//g;
+		next if $bare eq q{};
+		my $rest = $bare;
+		$rest =~ s/(?:Working|Workin|Worki|Work|Wor|WWo|orking|rking|king|ing|ng|[\x{2022}\d])//g;
+		next if length($rest) <= length($bare) / 5;
+		print "$line\n";
+	'
+}
+
+# Terminal control sequences are noise in a line-by-line read, and they also sit
+# between the characters an --expect regex is trying to match. A TUI that paints
+# with cursor moves ends a line with a bare carriage return, so \r is a line break
+# here, never dropped: dropping it glued a receipt to the answer on its next line.
+strip_ansi() {
+	perl -pe 's/\e\][^\a\e]*(?:\a|\e\\)//g; s/\e\[[0-9;?]*[ -\/]*[@-~]//g; s/\e[@-Z\\-_]//g; s/\r\n?/\n/g'
+}
+
+
+# The window echoes the message back, and a long message is WRAPPED when it is
+# echoed, so each echoed line holds only a fragment of what was sent. Matching on
+# "the line contains the whole sent text" therefore lets every fragment through,
+# and --expect can be satisfied by the caller's own words. Measured twice: once
+# on a short message, once on a 754-character one after the first fix.
+# A shell prompt contains the complete command, while a coding TUI prefixes its
+# wrapped composer echo with › or ❯. Unrelated pane output can appear before or
+# inside that wrapped echo, so it must not disable later echo recognition.
+without_echo() {
+	if [[ "$have_text" == true ]]; then
+		printf '%s\n' "$1" | SENT_TEXT="$sent_payload" perl -ne '
+			BEGIN {
+				$sent = $ENV{SENT_TEXT}; $sent =~ s/\s+//g;
+				$remaining = $sent; $composer = 0;
+			}
+			my $line = $_; chomp $line;
+			my $bare = $line; $bare =~ s/\s+//g;
+			next if $bare eq q{};
+			if (index($bare, $sent) >= 0) {
+				next;
+			}
+			my $prefixed = $bare =~ s/^[\x{203A}\x{276F}]//;
+			if ($prefixed) {
+				$composer = 1;
+				$remaining = $sent if $remaining eq q{};
+				next if $bare eq q{};
+			}
+			if ($composer) {
+				my $at = index($remaining, $bare);
+				if ($at >= 0) {
+					$remaining = substr($remaining, $at + length($bare));
+					$composer = 0 if $remaining eq q{};
+					next;
+				}
+			}
+			print "$line\n";
+		'
+	else
+		printf '%s\n' "$1"
+	fi
+}
+
+# Escape and Enter can be echoed as a literal "^[" or as control bytes when a
+# second submit is attempted. They prove only that keys reached the terminal.
+without_submit_noise() {
+	without_echo "$1" | perl -pe 's/\^\[//g; s/[\x00-\x1f\x7f]//g'
+}
+
+after_delivery_receipt() {
+	without_echo "$1" | DELIVERY_RECEIPT="$delivery_receipt" perl -CSD -0777 -e '
+		local $/;
+		my $text = <STDIN> // q{};
+		my $receipt = $ENV{DELIVERY_RECEIPT};
+		# A receipt inside a repainted command echo is not runtime output.
+		# Native TUI output adds a bullet and may repaint status text on this line.
+		exit 1 unless $text =~ /(?:\A|\n)[ \t]*(?:\x{2022}[ \t]+)?\Q$receipt\E[^\n]*(?:\n|\z)/g;
+		print substr($text, pos($text));
+	'
+}
+
+accepted=false
+bytes=0
+nudged=false
+# ── transcript verification ──────────────────────────────────────────────────
+# A seat spawned by reach records where its agent writes its own transcript. New
+# assistant text there is the agent's answer by definition: no echo, no repaint,
+# no status line, whatever the TUI draws. The receipt proves delivery; --expect is
+# matched against the text that follows it.
+transcript_kind="" transcript_path="" transcript_since="" seat_json=""
+[[ -z "${record:-}" ]] || seat_json="$(dirname -- "$record")/transcript.json"
+if [[ -n "$seat_json" && -f "$seat_json" ]]; then
+	transcript_kind="$(jq -r '.runtime // empty' "$seat_json")"
+	transcript_path="$(jq -r '.transcript // empty' "$seat_json")"
+	transcript_since="$(jq -r '.spawned_at // 0' "$seat_json")"
+fi
+transcript_file() {
+	# Codex names its rollout itself: the newest one for this cwd started after the spawn.
+	if [[ "$transcript_path" == codex-rollout ]]; then
+		local cwd
+		cwd="$(jq -r '.cwd // empty' "$seat_json")"
+		find "${CODEX_HOME:-$HOME/.codex}/sessions" -name 'rollout-*.jsonl' -newermt "@$transcript_since" -print0 2>/dev/null |
+			xargs -0 -r ls -t 2>/dev/null | while IFS= read -r f; do
+				jq -e --arg cwd "$cwd" 'select(.type == "session_meta" and .payload.cwd == $cwd)' <<<"$(head -1 -- "$f")" >/dev/null 2>&1 && { printf '%s\n' "$f"; break; }
+			done
+	else
+		printf '%s\n' "$transcript_path"
+	fi
+}
+transcript_text() { # <file> <byte offset>: assistant text appended after the offset
+	tail -c +"$(( $2 + 1 ))" -- "$1" | case "$transcript_kind" in
+		claude) jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text' 2>/dev/null ;;
+		codex) jq -r 'select(.type == "response_item" and .payload.type == "message" and .payload.role == "assistant") | .payload.content[]? | .text // empty' 2>/dev/null ;;
+	esac
+}
+transcript_wait() {
+	local file offset=0 started text after nudge_at
+	file="$(transcript_file)"
+	[[ -z "$file" || ! -f "$file" ]] || offset="$(stat -c %s -- "$file")"
+	started="$(date +%s)"
+	nudge_at=$(( started + poll_secs * 2 ))
+	while :; do
+		[[ -n "$file" && -f "$file" ]] || file="$(transcript_file)"
+		if [[ -n "$file" && -f "$file" ]]; then
+			text="$(transcript_text "$file" "$offset")"
+			if [[ "$text" == *"$delivery_receipt"* ]]; then
+				after="${text#*"$delivery_receipt"}"
+				if [[ -z "$expect" ]] || printf '%s' "$after" | grep -Eq -- "$expect"; then
+					report true "transcript-matched" "transcript:$(stat -c %s -- "$file")" 0 "$after"
+					exit 0
+				fi
+			elif [[ "$nudged" == false && "$(date +%s)" -ge "$nudge_at" ]] && submit_again; then
+				nudged=true
+			fi
+		fi
+		(( $(date +%s) - started < timeout_secs )) || break
+		sleep "$poll_secs"
+	done
+	printf 'the transcript %s showed no reply to this send within %ss\n' "${file:-(not found)}" "$timeout_secs" >&2
+	report false "expected-output-absent" "transcript:${offset}" 0 "${text:-}" >&2
+	exit "$EXIT_UNVERIFIED"
+}
+
+if [[ "$have_text" == true ]]; then
+	if ! bytes="$(send_text)"; then
+		printf 'the runtime refused the send to %s\n' "$terminal" >&2
+		exit "$EXIT_SEND_REFUSED"
+	fi
+	accepted=true
+	if [[ "$no_wait" != true && -z "$transcript_path" ]]; then
+		# Only this send's unique receipt can prove submission. Busy pane output and
+		# the composer's echo are unrelated and must not suppress the retry.
+		sleep "$poll_secs"
+		probe="$(snapshot "$cursor_before" || true)"
+		probe_out=""
+		if [[ -n "$probe" ]]; then
+			probe_out="$(printf '%s' "$probe" | jq -r '.lines | join("\n")' | strip_ansi)"
+		fi
+		if ! after_delivery_receipt "$probe_out" >/dev/null; then
+			if submit_again; then
+				nudged=true
+			fi
+		fi
+	fi
+fi
+
+
+report() {
+	local verified="$1" reason="$2" cursor_after="$3" lines="$4" out="$5"
+	local out_file screen_file screen="" mode=byte-capture
+	[[ "$cursor_after" != *:screen:* ]] || mode="screen-fallback"
+	if [[ "$have_text" == false && -z "$since" ]]; then
+		screen="$baseline_screen"
+	fi
+	out_file="$(mktemp "${TMPDIR:-/tmp}/agent-window-out.XXXXXX")"
+	screen_file="$(mktemp "${TMPDIR:-/tmp}/agent-window-screen-out.XXXXXX")"
+	printf '%s' "$out" >"$out_file"
+	printf '%s' "$screen" >"$screen_file"
+	jq -n --arg terminal "$terminal" --arg before "$cursor_before" \
+		--arg after "$cursor_after" --argjson accepted "$accepted" --argjson bytes "$bytes" \
+		--argjson verified "$verified" --arg reason "$reason" --arg mode "$mode" --argjson lines "$lines" \
+		--rawfile output "$out_file" --rawfile screen "$screen_file" \
+		--argjson sent "$have_text" --argjson nudged "$nudged" --arg receipt "$delivery_receipt" \
+		'{ok: $verified, terminal: $terminal, sent: $sent,
+		  acceptedByRuntime: $accepted, bytesWritten: $bytes, neededSecondEnter: $nudged,
+		  deliveryReceipt: $receipt, verified: $verified,
+		  reason: $reason, mode: $mode, cursorBefore: $before, cursorAfter: $after,
+		  newLineCount: $lines, output: $output, screen: $screen}'
+	rm -f -- "$out_file" "$screen_file"
+}
+
+approval_prompt_present() {
+	grep -qiE \
+		'Press (enter|return) to (confirm|proceed|continue|approve|allow)|Yes,?[[:space:]]+(proceed|approve|allow)|and tell .* what to do differently|(^|[^[:alpha:]])(authorize|approve|allow|permit)[^[:cntrl:]]*\[[yYnN]/[yYnN]\]'
+}
+
+if [[ "$have_text" == false && "$follow" == false && -z "$since" && -z "$expect" ]]; then
+	report true "read-only-current-screen" "$cursor_before" 0 ""
+	exit 0
+fi
+
+if [[ "$have_text" == true && "$no_wait" == true ]]; then
+	report false "not-waited" "$cursor_before" 0 ""
+	exit 0
+fi
+
+if [[ "$have_text" == true && -n "$transcript_path" && -n "$transcript_kind" ]]; then
+	transcript_wait
+fi
+
+# ── follow: the ten-minutes-of-watching mode ──────────────────────────────────
+# Prints every new line as it appears, with a clock, so a human or an agent can
+# read the run rather than sample it.
+if [[ "$follow" == true ]]; then
+	printf '# watching %s from cursor %s — timeout %ss%s\n' \
+		"$terminal" "$cursor_before" "$timeout_secs" \
+		"${idle_secs:+, stop after ${idle_secs}s idle}"
+	cursor="$cursor_before"
+	total=0
+	started="$(date +%s)"
+	last_new="$started"
+	approval_rung=false
+	delivery_seen=false
+	match_fragment=""
+	[[ "$have_text" == false ]] && delivery_seen=true
+	while :; do
+		if ! snap="$(snapshot "$cursor")"; then
+			emit_watch_event dead "reason=read-failed"
+			ring_or_fail dead "The window could no longer be read; supervision stopped."
+			exit "$EXIT_UNRELIABLE"
+		fi
+		snapshot_status="$(printf '%s' "$snap" | jq -r '.status')"
+		expect_matched=false
+		new="$(printf '%s' "$snap" | jq -r '.newLineCount')"
+		if [[ "$new" -gt 0 ]]; then
+			raw_new="$(printf '%s' "$snap" | jq -r '.lines | join("\n")' | strip_ansi)"
+			ended_with_newline="$(printf '%s' "$snap" | jq -r '.endedWithNewline')"
+			expect_input="${match_fragment}${raw_new}"
+			if [[ "$ended_with_newline" == true ]]; then
+				match_fragment=""
+			else
+				match_fragment="${expect_input##*$'\n'}"
+			fi
+				# The body must not end on a failed test: a blank final line would
+				# make the loop return 1, and `set -e` would kill the watch without
+				# a word. A watcher that dies quietly is worse than no watcher.
+				# A TUI repaints constantly, and a raw byte capture turns those
+				# repaints into lines of pure spinner debris. A line carrying no
+				# letter, digit or CJK character cannot be an answer, so it is not
+				# shown. This filter is display-only: --expect still matches against
+				# everything, because a filter that can hide an answer must never sit
+				# in front of a verification.
+				printf '%s\n' "$raw_new" | drop_spinner_debris \
+				| while IFS= read -r l; do
+					printf '%s | %s\n' "$(date +%H:%M:%S)" "$l"
+				done || true
+			total=$(( total + new )) || true
+			last_new="$(date +%s)"
+			if [[ "$have_text" == true && "$delivery_seen" == false ]]; then
+				if expect_input="$(after_delivery_receipt "$expect_input")"; then
+					delivery_seen=true
+				else
+					expect_input=""
+				fi
+			fi
+			if [[ -n "$expect" && "$delivery_seen" == true ]] && printf '%s' "$expect_input" | grep -Eq -- "$expect"; then
+				expect_matched=true
+			fi
+		fi
+		cursor="$(printf '%s' "$snap" | jq -r '.cursor')"
+		if [[ "$snapshot_status" == exited ]]; then
+			emit_watch_event dead "reason=exited"
+			ring_or_fail dead "The window exited."
+			if [[ "$expect_matched" == true ]]; then
+				printf '# stopped: expected output matched, %s lines seen, cursor %s\n' \
+					"$total" "$cursor"
+				exit 0
+			fi
+			if [[ "$have_text" == true && "$delivery_seen" == false ]]; then
+				printf 'the window exited before it confirmed this send delivery receipt\n' >&2
+				exit "$EXIT_UNVERIFIED"
+			fi
+			if [[ -n "$expect" ]]; then
+				printf 'the window exited before its output matched --expect\n' >&2
+				exit "$EXIT_UNVERIFIED"
+			fi
+			exit 0
+		fi
+		if [[ "$expect_matched" == true ]]; then
+			printf '# stopped: expected output matched, %s lines seen, cursor %s\n' \
+				"$total" "$cursor"
+			exit 0
+		fi
+		# A window waiting for approval is stalled, not idle, and the stall has a
+		# shape worth calling out: the run stops dead until somebody answers, and
+		# the only signal is one line under the spinner. Measured on a real run
+		# blocked on a read-only git command for as long as nobody looked.
+		if printf '%s' "$snap" | jq -r '.lines[]' | strip_ansi | approval_prompt_present; then
+			if [[ "$approval_rung" == false ]]; then
+				printf '# ATTENTION: the window is waiting for an approval answer\n'
+				emit_watch_event approval "action=answer-required"
+				ring_or_fail approval "The window is waiting for an approval answer."
+				approval_rung=true
+			fi
+		fi
+		now="$(date +%s)"
+		if [[ -n "$idle_secs" && $(( now - last_new )) -ge "$idle_secs" ]]; then
+			emit_watch_event idle "idleSeconds=$idle_secs"
+			ring_or_fail idle "The window produced no new output for ${idle_secs}s."
+			printf '# stopped: %ss without new output, %s lines seen, cursor %s\n' \
+				"$idle_secs" "$total" "$cursor"
+			break
+		fi
+		if [[ $(( now - started )) -ge "$timeout_secs" ]]; then
+			printf '# stopped: %ss watch window elapsed, %s lines seen, cursor %s\n' \
+				"$timeout_secs" "$total" "$cursor"
+			break
+		fi
+		sleep "$poll_secs"
+	done
+	if [[ "$have_text" == true && "$delivery_seen" == false ]]; then
+		printf 'the watch ended before the window confirmed this send delivery receipt\n' >&2
+		exit "$EXIT_UNVERIFIED"
+	fi
+	if [[ -n "$expect" ]]; then
+		printf 'the watch ended before its output matched --expect\n' >&2
+		exit "$EXIT_UNVERIFIED"
+	fi
+	exit 0
+fi
+
+deadline=$(( $(date +%s) + timeout_secs ))
+last_after="$cursor_before"
+last_lines=0
+last_out=""
+while :; do
+	snap="$(snapshot "$cursor_before" || true)"
+	if [[ -n "$snap" ]]; then
+		last_after="$(printf '%s' "$snap" | jq -r '.cursor')"
+		last_lines="$(printf '%s' "$snap" | jq -r '.newLineCount')"
+		last_out="$(printf '%s' "$snap" | jq -r '.lines | join("\n")' | strip_ansi)"
+		# A send is verified only by this send's unique receipt. Arbitrary busy
+		# output cannot prove delivery.
+		if [[ "$last_after" != "$cursor_before" ]]; then
+			if [[ "$have_text" == false ]]; then
+				if [[ -z "$expect" && -n "$(without_submit_noise "$last_out" | tr -d '[:space:]')" ]]; then
+					report true "cursor-advanced" "$last_after" "$last_lines" "$last_out"
+					exit 0
+				elif [[ -n "$expect" ]] && printf '%s' "$last_out" | grep -Eq -- "$expect"; then
+					report true "expected-output-matched" "$last_after" "$last_lines" "$last_out"
+					exit 0
+				fi
+			elif receipt_out="$(after_delivery_receipt "$last_out")"; then
+				if [[ -z "$expect" ]]; then
+					report true "cursor-advanced" "$last_after" "$last_lines" "$last_out"
+					exit 0
+				elif printf '%s' "$receipt_out" | grep -Eq -- "$expect"; then
+					report true "expected-output-matched" "$last_after" "$last_lines" "$last_out"
+					exit 0
+				fi
+			fi
+		fi
+	fi
+	[[ "$(date +%s)" -ge "$deadline" ]] && break
+	sleep "$poll_secs"
+done
+
+if [[ "$have_text" == false ]]; then
+	if [[ -n "$expect" ]]; then
+		printf 'the read ended before new output matched --expect\n' >&2
+		report false "expected-output-absent" "$last_after" "$last_lines" "$last_out" >&2
+		exit "$EXIT_UNVERIFIED"
+	fi
+	# Read-only with nothing new: show the window as it stands rather than an empty
+	# string. "Nothing changed" and "nothing there" are different answers, and a
+	# caller asking what a window looks like wants the second one answered.
+	if [[ -z "$last_out" && -z "$since" ]]; then
+		last_out="$(printf '%s' "$baseline" | jq -r '.lines | join("\n")' | strip_ansi)"
+		last_lines="$(printf '%s' "$baseline" | jq -r '.newLineCount')"
+		report true "read-only-current-screen" "$last_after" "$last_lines" "$last_out"
+		exit 0
+	fi
+	report true "read-only-no-new-output" "$last_after" "$last_lines" "$last_out"
+	exit 0
+fi
+if [[ "$last_after" == "$cursor_before" ]]; then
+	printf 'the window produced nothing after the send; it was accepted but never acted on (status before: %s)\n' \
+		"$status_before" >&2
+	report false "no-output-after-send" "$last_after" "$last_lines" "$last_out" >&2
+	exit "$EXIT_UNVERIFIED"
+fi
+if [[ -z "$expect" ]]; then
+	printf 'the window produced only the sent-text echo; delivery was not verified\n' >&2
+	report false "no-non-echo-output-after-send" "$last_after" "$last_lines" "$last_out" >&2
+	exit "$EXIT_UNVERIFIED"
+fi
+printf 'the window produced output but it never matched --expect\n' >&2
+report false "expected-output-absent" "$last_after" "$last_lines" "$last_out" >&2
+exit "$EXIT_UNVERIFIED"

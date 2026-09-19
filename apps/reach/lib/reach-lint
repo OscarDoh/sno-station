@@ -1,0 +1,425 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly REPO_ROOT
+readonly ADDRESS_CORE='[a-z][a-z0-9-]{0,31}\.[a-z0-9][a-z0-9-]{0,63}@[a-z0-9][a-z0-9.-]{0,252}'
+readonly ADDRESS_RE="^${ADDRESS_CORE}$"
+readonly DISPLAY_ADDRESS_RE="^([^<>,]+)[[:space:]]+<(${ADDRESS_CORE})>$"
+readonly MESSAGE_ID_RE='^<[^<>[:space:]]+>$'
+
+export PATH="$REPO_ROOT/vendor/bin${PATH:+:$PATH}"
+export LC_ALL=C
+
+TEMP_DIR=''
+MESSAGE_FILE=''
+
+cleanup() {
+    local status=$?
+
+    trap - EXIT HUP INT TERM
+    if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
+        rm -r -- "$TEMP_DIR" || {
+            printf 'reach-lint: failed to remove temporary directory: %s\n' \
+                "$TEMP_DIR" >&2
+            ((status == 0)) && status=74
+        }
+    fi
+    exit "$status"
+}
+
+die() {
+    local status="$1"
+    shift
+
+    printf 'reach-lint: %s\n' "$*" >&2
+    exit "$status"
+}
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+while (($# > 0)); do
+    case "$1" in
+        -*)
+            die 64 "unknown option: $1"
+            ;;
+        *)
+            [[ -z "$MESSAGE_FILE" ]] ||
+                die 64 'usage: reach-lint [message-file]'
+            MESSAGE_FILE="$1"
+            shift
+            ;;
+    esac
+done
+
+for dependency in maddr mhdr; do
+    command -v "$dependency" >/dev/null 2>&1 ||
+        die 69 "required vendored tool is unavailable: $dependency"
+done
+
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/reach-lint.XXXXXXXXXX")" ||
+    die 74 'could not create a private temporary directory'
+readonly TEMP_DIR
+readonly SNAPSHOT="$TEMP_DIR/message"
+
+if [[ -n "$MESSAGE_FILE" ]]; then
+    [[ -f "$MESSAGE_FILE" && ! -L "$MESSAGE_FILE" ]] ||
+        die 66 "message file is not a regular file: $MESSAGE_FILE"
+    cp -- "$MESSAGE_FILE" "$SNAPSHOT" ||
+        die 74 "could not snapshot message file: $MESSAGE_FILE"
+else
+    cat >"$SNAPSHOT" ||
+        die 74 'could not snapshot the input message'
+fi
+
+has_separator() {
+    awk '
+        $0 == "" || $0 == "\r" { found = 1; exit }
+        END { exit(found ? 0 : 1) }
+    ' "$SNAPSHOT"
+}
+
+header_count() {
+    local name="${1,,}"
+
+    awk -v wanted="$name" '
+        $0 == "" || $0 == "\r" { exit }
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            split(line, parts, ":")
+            if (tolower(parts[1]) == wanted)
+                count++
+        }
+        END { print count + 0 }
+    ' "$SNAPSHOT"
+}
+
+raw_header_has_value() {
+    local name="${1,,}"
+
+    awk -v wanted="$name" '
+        $0 == "" || $0 == "\r" { exit }
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            colon = index(line, ":")
+            if (!colon)
+                next
+            field = tolower(substr(line, 1, colon - 1))
+            value = substr(line, colon + 1)
+            if (field == wanted) {
+                sub(/^[[:space:]]*/, "", value)
+                found = 1
+                valid = (value != "")
+                exit
+            }
+        }
+        END { exit(found && valid ? 0 : 1) }
+    ' "$SNAPSHOT"
+}
+
+header_is_unfolded() {
+    local name="${1,,}"
+
+    awk -v wanted="$name" '
+        $0 == "" || $0 == "\r" { exit }
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            if (found) {
+                if (line ~ /^[[:space:]]/)
+                    folded = 1
+                exit
+            }
+            colon = index(line, ":")
+            if (!colon)
+                next
+            field = tolower(substr(line, 1, colon - 1))
+            if (field == wanted)
+                found = 1
+        }
+        END { exit(found && !folded ? 0 : 1) }
+    ' "$SNAPSHOT"
+}
+
+header_value() {
+    local name="${1,,}"
+
+    mhdr -h "$name" "$SNAPSHOT"
+}
+
+header_values() {
+    local name="${1,,}"
+
+    mhdr -M -h "$name" "$SNAPSHOT"
+}
+
+trim() {
+    local value="$1"
+
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s\n' "$value"
+}
+
+parse_address_item() {
+    local item
+    local display
+    local address
+
+    item="$(trim "$1")"
+    if [[ "$item" =~ $ADDRESS_RE ]]; then
+        printf '%s\n' "$item"
+        return 0
+    fi
+    if [[ "$item" =~ $DISPLAY_ADDRESS_RE ]]; then
+        display="$(trim "${BASH_REMATCH[1]}")"
+        address="${BASH_REMATCH[2]}"
+        [[ -n "$display" && "$display" =~ ^[[:print:]]+$ ]] || return 1
+        printf '%s\n' "$address"
+        return 0
+    fi
+    return 1
+}
+
+validate_address_header() {
+    local name="$1"
+    local require_display="${2:-no}"
+    local max_occurrences="${3:-0}"
+    local count
+    local value
+    local item
+    local address
+    local extracted_file="$TEMP_DIR/maddr-${name,,}"
+    local -a expected=()
+    local -a extracted=()
+    local -a items=()
+
+    count="$(header_count "$name")"
+    ((count > 0)) || return 0
+    if ((max_occurrences > 0 && count > max_occurrences)); then
+        die 65 "header appears more than once: $name"
+    fi
+
+    while IFS= read -r value; do
+        IFS=',' read -r -a items <<<"$value"
+        ((${#items[@]} > 0)) ||
+            die 65 "address header is empty: $name"
+        for item in "${items[@]}"; do
+            address="$(parse_address_item "$item")" ||
+                die 65 "invalid address-list item in $name: $item; rule=$ADDRESS_RE"
+            if [[ "$require_display" == yes &&
+                  ! "$(trim "$item")" =~ $DISPLAY_ADDRESS_RE ]]; then
+                die 65 "$name requires a non-empty display name and angle address"
+            fi
+            expected+=("$address")
+        done
+    done < <(header_values "$name")
+
+    ((${#expected[@]} > 0)) ||
+        die 65 "address header is empty: $name"
+    if [[ "$require_display" == yes && ${#expected[@]} -ne 1 ]]; then
+        die 65 "$name requires exactly one author address"
+    fi
+    if ! maddr -a -h "${name,,}:" "$SNAPSHOT" >"$extracted_file"; then
+        die 65 "vendored address parser rejected header: $name"
+    fi
+    mapfile -t extracted <"$extracted_file"
+    ((${#expected[@]} == ${#extracted[@]})) ||
+        die 65 "vendored address parser found a different item count in: $name"
+    for item in "${!expected[@]}"; do
+        [[ "${expected[$item]}" == "${extracted[$item]}" &&
+           "${extracted[$item]}" =~ $ADDRESS_RE ]] ||
+            die 65 "invalid parsed address in $name: ${extracted[$item]}"
+    done
+}
+
+validate_message_ids() {
+    local name="$1"
+    local value
+    local token
+
+    value="$(header_value "$name")"
+    [[ -n "$value" ]] || die 65 "header is empty: $name"
+    for token in $value; do
+        [[ "$token" =~ $MESSAGE_ID_RE ]] ||
+            die 65 "invalid message-id token in $name: $token"
+    done
+}
+
+has_separator ||
+    die 65 'message has no header/body separator'
+
+(( $(header_count X-Journey) == 0 )) || die 65 'X-Journey is not supported; use X-Work'
+(( $(header_count X-Callsign) == 0 )) || die 65 'X-Callsign is not supported; use X-Name'
+
+required_headers=(From Subject Date Message-ID X-Work X-Type)
+for name in "${required_headers[@]}"; do
+    count="$(header_count "$name")"
+    ((count == 1)) ||
+        die 65 "required singleton header count is not one: $name"
+    raw_header_has_value "$name" ||
+        die 65 "required singleton header is empty or folded: $name"
+    header_is_unfolded "$name" ||
+        die 65 "required singleton header is folded: $name"
+done
+
+recipient_count=0
+for name in To Cc Bcc; do
+    count="$(header_count "$name")"
+    recipient_count=$((recipient_count + count))
+done
+((recipient_count > 0)) ||
+    die 65 'message has no To, Cc, or Bcc recipient'
+
+validate_address_header From yes 1
+validate_address_header Sender no 1
+validate_address_header Reply-To no 1
+validate_address_header To
+validate_address_header Cc
+validate_address_header Bcc
+validate_address_header Delivered-To no 1
+
+date_epoch="$(mhdr -D -h date "$SNAPSHOT")" ||
+    die 65 'Date is not a valid RFC 5322 date'
+[[ "$date_epoch" =~ ^-?[0-9]+$ ]] ||
+    die 65 'Date is not a valid RFC 5322 date'
+
+message_id="$(header_value Message-ID)"
+[[ "$message_id" =~ $MESSAGE_ID_RE ]] ||
+    die 65 'Message-ID must contain exactly one angle-bracket message-id'
+
+type="$(header_value X-Type)"
+subject="$(header_value Subject)"
+case "$type" in
+    question) tag='[QUESTION]' ;;
+    decision) tag='[DECISION]' ;;
+    answer) tag='[ANSWER]' ;;
+    info) tag='[FYI]' ;;
+    status) tag='[STATUS]' ;;
+    done) tag='[DONE]' ;;
+    cancel) tag='[CANCEL]' ;;
+    *) die 65 "unknown X-Type value: $type" ;;
+esac
+[[ "$subject" == "$tag" ||
+   "$subject" == "$tag "* ||
+   "$subject" == "Re: $tag" ||
+   "$subject" == "Re: $tag "* ]] ||
+    die 65 "Subject tag does not agree with X-Type: $type"
+
+journey="$(header_value X-Work)"
+[[ "$journey" =~ ^[^[:space:][:cntrl:]]+$ ]] ||
+    die 65 'X-Work must be one non-empty bare token'
+
+for name in X-Name X-No-Reply X-State Supersedes Expiry-Date Auto-Submitted In-Reply-To References; do
+    count="$(header_count "$name")"
+    ((count <= 1)) || die 65 "header appears more than once: $name"
+done
+
+if (( $(header_count X-State) == 1 )); then
+    state="$(header_value X-State)"
+    case "$state" in
+        accepted|running)
+            [[ "$type" == status ]] || die 65 "X-State: $state requires X-Type: status"
+            ;;
+        requires-action)
+            [[ "$type" == question ]] || die 65 'X-State: requires-action requires X-Type: question'
+            ;;
+        completed|failed|cancelled|refused) ;;
+        *) die 65 "unknown X-State value: $state" ;;
+    esac
+    (( $(header_count In-Reply-To) == 1 )) || die 65 'X-State requires In-Reply-To'
+    (( $(header_count Supersedes) == 0 )) || die 65 'X-State and Supersedes are mutually exclusive'
+fi
+
+if [[ "$type" == cancel ]]; then
+    (( $(header_count In-Reply-To) == 1 )) || die 65 'X-Type: cancel requires In-Reply-To'
+    (( $(header_count Supersedes) == 0 )) || die 65 'X-Type: cancel and Supersedes are mutually exclusive'
+fi
+if (( $(header_count Supersedes) == 1 )); then
+    [[ "$(header_value Supersedes)" =~ $MESSAGE_ID_RE ]] ||
+        die 65 'Supersedes must contain exactly one angle-bracket message-id'
+fi
+if (( $(header_count Expiry-Date) == 1 )); then
+    expiry_epoch="$(mhdr -D -h expiry-date "$SNAPSHOT")" ||
+        die 65 'Expiry-Date is not a valid RFC 5322 date'
+    [[ "$expiry_epoch" =~ ^-?[0-9]+$ ]] ||
+        die 65 'Expiry-Date is not a valid RFC 5322 date'
+fi
+
+if (( $(header_count X-Name) == 1 )); then
+    callsign="$(header_value X-Name)"
+    [[ "$callsign" =~ ^[^[:space:][:cntrl:]]+$ ]] ||
+        die 65 'X-Name must be one non-empty bare token'
+fi
+
+if (( $(header_count X-No-Reply) == 1 )); then
+    raw_header_has_value X-No-Reply ||
+        die 65 'X-No-Reply must be an unfolded singleton with value true'
+    header_is_unfolded X-No-Reply ||
+        die 65 'X-No-Reply must be an unfolded singleton with value true'
+    [[ "$(header_value X-No-Reply)" == true ]] ||
+        die 65 'X-No-Reply must be exactly true'
+fi
+
+if (( $(header_count Auto-Submitted) == 1 )); then
+    auto_submitted="$(header_value Auto-Submitted)"
+    case "$auto_submitted" in
+        no|auto-generated|auto-replied) ;;
+        *) die 65 "invalid Auto-Submitted value: $auto_submitted" ;;
+    esac
+fi
+
+while IFS= read -r extension; do
+    case "$extension" in
+        x-work|x-type|x-name|x-no-reply|x-state|x-tag) ;;
+        *) die 65 "unsupported agent extension: $extension" ;;
+    esac
+done < <(
+    awk '
+        $0 == "" || $0 == "\r" { exit }
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            colon = index(line, ":")
+            if (!colon)
+                next
+            field = tolower(substr(line, 1, colon - 1))
+            if (field ~ /^x-/)
+                print field
+        }
+    ' "$SNAPSHOT"
+)
+
+while IFS= read -r tag_value; do
+    [[ "$tag_value" =~ ^[[:print:]]+$ ]] ||
+        die 65 'X-Tag must be a non-empty printable single-line label'
+done < <(header_values X-Tag)
+
+
+reply=no
+[[ "$type" == answer || "$subject" == 'Re: '* ]] && reply=yes
+(( $(header_count In-Reply-To) > 0 )) && reply=yes
+(( $(header_count References) > 0 )) && reply=yes
+if [[ "$reply" == yes ]]; then
+    (( $(header_count In-Reply-To) == 1 )) ||
+        die 65 'reply requires exactly one In-Reply-To header'
+    (( $(header_count References) == 1 )) ||
+        die 65 'reply requires exactly one References header'
+    parent="$(header_value In-Reply-To)"
+    [[ "$parent" =~ $MESSAGE_ID_RE ]] ||
+        die 65 'In-Reply-To must contain exactly one angle-bracket message-id'
+    validate_message_ids References
+    parent_found=no
+    for reference in $(header_value References); do
+        [[ "$reference" == "$parent" ]] && parent_found=yes
+    done
+    [[ "$parent_found" == yes ]] ||
+        die 65 'References does not contain the direct parent'
+fi

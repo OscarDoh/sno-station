@@ -1,0 +1,27 @@
+{
+  "name": "@snoai/utils",
+  "version": "0.8.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sno-ai/sno-station.git",
+    "directory": "packages/utils"
+  },
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./logger": { "types": "./dist/logger.d.ts", "default": "./dist/logger.js" },
+    "./log-encoder": { "types": "./dist/log-encoder.d.ts", "default": "./dist/log-encoder.js" },
+    "./log-context": { "types": "./dist/log-context.d.ts", "default": "./dist/log-context.js" },
+    "./log-site-catalog.json": "./dist/log-site-catalog.json"
+  },
+  "files": ["dist", "LICENSE", "README.md"],
+  "dependencies": { "fs-ext": "^2.1.1" },
+  "devDependencies": { "@babel/parser": "^7.29.8", "tsx": "^4.22.4" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsx scripts/build-log-catalog.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/"
+  }
+}

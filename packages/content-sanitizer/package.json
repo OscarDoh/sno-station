@@ -1,0 +1,48 @@
+{
+	"name": "@snoai/content-sanitizer",
+	"version": "0.99.3",
+	"license": "Apache-2.0",
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/sno-ai/sno-station.git",
+		"directory": "packages/content-sanitizer"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE",
+		"package.json"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "rm -rf dist && tsc -p tsconfig.json",
+		"prepack": "npm run build",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check src/ tests/",
+		"lint:fix": "biome check --write src/ tests/",
+		"test": "vitest run tests"
+	},
+	"dependencies": {
+		"@snoai/chunking": "^1.0.1",
+		"sanitize-html": "^2.17.0",
+		"turndown": "^7.2.1",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@types/sanitize-html": "^2.16.0",
+		"@types/turndown": "^5.0.5",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.5"
+	}
+}

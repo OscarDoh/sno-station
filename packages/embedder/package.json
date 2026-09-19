@@ -1,0 +1,29 @@
+{
+  "name": "@snoai/embedder",
+  "version": "0.8.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sno-ai/sno-station.git",
+    "directory": "packages/embedder"
+  },
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" }
+  },
+  "files": ["dist", "LICENSE", "README.md"],
+  "scripts": {
+    "build": "tsdown src/index.ts --no-config --format esm --target node22 --platform node --dts --deps.never-bundle @snoai/utils",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/"
+  },
+  "devDependencies": { "tsdown": "0.22.5" },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "@snoai/utils": "file:../utils",
+    "async-mutex": "^0.5.0",
+    "lru-cache": "^11.0.0",
+    "onnxruntime-node": "1.21.1"
+  }
+}

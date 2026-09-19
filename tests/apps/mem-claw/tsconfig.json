@@ -1,0 +1,22 @@
+{
+  "extends": "../../../apps/mem-claw/tsconfig.json",
+  "compilerOptions": {
+    "isolatedDeclarations": false,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "rootDir": "../../..",
+		"paths": {
+			"@/config": ["../../../apps/mem-claw/config/index.ts"],
+			"@/*": ["../../../apps/mem-claw/src/*"]
+		}
+  },
+  "include": [
+    "**/*.ts",
+    "../../../apps/mem-claw/src/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

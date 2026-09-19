@@ -1,0 +1,55 @@
+#!/bin/sh
+# Also embedded verbatim in the fixed remote receiver; keep this POSIX shell.
+set -eu
+LC_ALL=C
+export LC_ALL
+reach_id_dir=${XDG_STATE_HOME:-$HOME/.local/state}/sno-reach
+reach_id_file=$reach_id_dir/machine-id
+reach_id_tmp=''
+
+reach_id_error() {
+    printf 'sno-reach: cannot read or persist valid machine identity: %s\n' "$reach_id_file" >&2
+    exit 74
+}
+
+reach_id_valid() {
+    [ "${#1}" -eq 32 ] || return 1
+    case "$1" in *[!0-9a-f]*) return 1 ;; esac
+}
+
+if [ ! -e "$reach_id_file" ] && [ ! -L "$reach_id_file" ]; then
+    reach_id_value=''
+    if [ -r /etc/machine-id ]; then
+        reach_id_value=$(tr -d '\r\n' </etc/machine-id) || reach_id_error
+    fi
+    if ! reach_id_valid "$reach_id_value"; then
+        reach_id_value=''
+        if [ "$(uname -s)" = Darwin ] && command -v ioreg >/dev/null 2>&1; then
+            if reach_id_platform=$(ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null); then
+                reach_id_value=$(printf '%s\n' "$reach_id_platform" |
+                    awk -F '"' '/"IOPlatformUUID"/ {print $(NF-1); exit}' |
+                    tr -d '-' | tr '[:upper:]' '[:lower:]') || reach_id_error
+            fi
+        fi
+    fi
+    if ! reach_id_valid "$reach_id_value"; then
+        reach_id_value=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n') || reach_id_error
+    fi
+    reach_id_valid "$reach_id_value" || reach_id_error
+    umask 077
+    mkdir -p "$reach_id_dir" || reach_id_error
+    reach_id_tmp=$(mktemp "$reach_id_dir/.machine-id.XXXXXXXXXX") || reach_id_error
+    trap 'rm -f -- "$reach_id_tmp"' EXIT
+    trap 'exit 74' HUP INT TERM
+    chmod 600 "$reach_id_tmp" || reach_id_error
+    printf '%s\n' "$reach_id_value" >"$reach_id_tmp" || reach_id_error
+    if ! ln "$reach_id_tmp" "$reach_id_file" 2>/dev/null; then
+        [ -e "$reach_id_file" ] || reach_id_error
+    fi
+fi
+if [ ! -f "$reach_id_file" ] || [ -L "$reach_id_file" ]; then
+    reach_id_error
+fi
+reach_id_value=$(cat "$reach_id_file") || reach_id_error
+reach_id_valid "$reach_id_value" || reach_id_error
+printf '%s\n' "$reach_id_value"

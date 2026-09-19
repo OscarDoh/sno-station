@@ -1,0 +1,364 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly ADDRESS_RE='^[a-z][a-z0-9-]{0,31}\.[a-z0-9][a-z0-9-]{0,63}@[a-z0-9][a-z0-9.-]{0,252}$'
+readonly TOKEN_RE='^[^[:space:][:cntrl:]]+$'
+readonly STALE_SECONDS=900
+
+die() {
+    local code="$1"
+    shift
+    printf 'reach-reachability: %s\n' "$*" >&2
+    exit "$code"
+}
+
+now_epoch() {
+    if [[ -n "${SNO_REACH_NOW:-}" ]]; then
+        [[ "$SNO_REACH_NOW" =~ ^[0-9]+$ ]] ||
+            die 64 'SNO_REACH_NOW must be a non-negative integer'
+        printf '%s\n' "$((10#$SNO_REACH_NOW))"
+    else
+        date -u +%s || die 74 'could not read the current time'
+    fi
+}
+
+validate_address() {
+    [[ "$1" =~ $ADDRESS_RE ]] || die 64 "invalid address: $1"
+}
+
+validate_token() {
+    [[ "$1" =~ $TOKEN_RE ]] || die 64 "$2 must be one non-empty bare token"
+}
+
+validate_pid() {
+    [[ "$1" =~ ^[1-9][0-9]*$ ]] || die 64 'pid must be a positive integer'
+}
+
+require_seat() {
+    local component
+
+    [[ "$ROOT" == /* && "$ROOT" != *'/../'* && "$ROOT" != *'/./'* &&
+       "$ROOT" != *'//' ]] || die 65 "unsafe mailbox root: $ROOT"
+    SEAT="$ROOT/$ADDRESS"
+    [[ -d "$SEAT" && ! -L "$SEAT" ]] ||
+        die 73 "seat directory is unavailable: $SEAT"
+    for component in tmp new cur; do
+        [[ -d "$SEAT/$component" && ! -L "$SEAT/$component" ]] ||
+            die 73 "seat Maildir component is unavailable: $SEAT/$component"
+    done
+    RECORD="$SEAT/reachable.json"
+    LOCK="$SEAT/.reachability.lock"
+}
+
+validate_record() {
+    local record="$1"
+
+    [[ -f "$record" && ! -L "$record" ]] ||
+        die 65 "reachability record is unsafe: $record"
+    jq -e --arg address "$ADDRESS" '
+        ((keys == ["address", "by", "channel", "claimed_at", "handle", "identity", "refreshed_at"] and
+          (.identity | keys == ["kind", "value"]) and
+          (.identity.kind | type == "string" and length > 0) and
+          (.identity.value | type == "string" and length > 0)) or
+         keys == ["address", "by", "channel", "claimed_at", "handle", "refreshed_at"]) and
+        .address == $address and
+        (if .channel == "acp" then
+            .identity.kind == "acp-session" and
+            (.handle | test("^acp-[a-zA-Z0-9][a-zA-Z0-9_-]*:/[^:\\r\\n]*:[^:[:space:]]+$")) and
+            (.handle | split(":") | .[2]) == .identity.value
+         else true end) and
+        (.channel | type == "string" and length > 0) and
+        (.handle | type == "string" and length > 0) and
+        (.claimed_at | type == "number" and floor == . and . >= 0) and
+        (.refreshed_at | type == "number" and floor == . and . >= 0) and
+        .refreshed_at >= .claimed_at and
+        (.by | keys == ["host", "pid"]) and
+        (.by.pid | type == "number" and floor == . and . > 0) and
+        (.by.host | type == "string" and length > 0)
+    ' "$record" >/dev/null ||
+        die 65 "reachability record is malformed: $record"
+}
+
+acquire_writer_lock() {
+    exec 9>"$LOCK" || die 74 "could not open reachability lock: $LOCK"
+    flock 9 || die 74 "could not acquire reachability lock: $LOCK"
+}
+
+publish_record() {
+    local claimed_at="$1"
+    local refreshed_at="$2"
+    local temporary
+
+    temporary="$(mktemp "$SEAT/.reachable.XXXXXXXXXX")" ||
+        die 74 'could not create a private reachability record'
+    trap 'rm -f -- "${temporary:-}"' RETURN
+    jq -n \
+        --arg address "$ADDRESS" \
+        --arg channel "$CHANNEL" \
+        --arg handle "$HANDLE" \
+        --arg identity_kind "$IDENTITY_KIND" \
+        --arg identity "$IDENTITY" \
+        --arg host "$BY_HOST" \
+        --argjson claimed_at "$claimed_at" \
+        --argjson refreshed_at "$refreshed_at" \
+        --argjson pid "$BY_PID" \
+        '{address:$address, channel:$channel, handle:$handle,
+          identity:{kind:$identity_kind, value:$identity},
+          claimed_at:$claimed_at, refreshed_at:$refreshed_at,
+          by:{pid:$pid, host:$host}}' >"$temporary" ||
+        die 74 'could not render the reachability record'
+    chmod 0600 "$temporary" || die 74 'could not protect the reachability record'
+    validate_record "$temporary"
+    if [[ -n "${SNO_REACH_TEST_PUBLICATION_BARRIER:-}" ]]; then
+        [[ -x "$SNO_REACH_TEST_PUBLICATION_BARRIER" ]] ||
+            die 64 'publication barrier is not executable'
+        "$SNO_REACH_TEST_PUBLICATION_BARRIER" "$temporary" "$RECORD"
+    fi
+    mv -- "$temporary" "$RECORD" ||
+        die 74 'could not publish the reachability record atomically'
+    trap - RETURN
+}
+
+parse_common() {
+    ROOT=''
+    ADDRESS=''
+    CHANNEL=''
+    HANDLE=''
+    IDENTITY_KIND=''
+    IDENTITY=''
+    EXPECTED_SHA256=''
+    CURRENT_IDENTITY_KIND=''
+    CURRENT_IDENTITY=''
+    BY_PID="$$"
+    BY_HOST=''
+    while (($# > 0)); do
+        case "$1" in
+            --root)
+                (($# >= 2)) || die 64 '--root needs a value'
+                [[ -z "$ROOT" ]] || die 64 '--root appears more than once'
+                ROOT="$2"
+                shift 2
+                ;;
+            --as)
+                (($# >= 2)) || die 64 '--as needs a value'
+                [[ -z "$ADDRESS" ]] || die 64 '--as appears more than once'
+                ADDRESS="$2"
+                shift 2
+                ;;
+            --channel)
+                (($# >= 2)) || die 64 '--channel needs a value'
+                [[ -z "$CHANNEL" ]] || die 64 '--channel appears more than once'
+                CHANNEL="$2"
+                shift 2
+                ;;
+            --handle)
+                (($# >= 2)) || die 64 '--handle needs a value'
+                [[ -z "$HANDLE" ]] || die 64 '--handle appears more than once'
+                HANDLE="$2"
+                shift 2
+                ;;
+            --identity-kind)
+                (($# >= 2)) || die 64 '--identity-kind needs a value'
+                [[ -z "$IDENTITY_KIND" ]] || die 64 '--identity-kind appears more than once'
+                IDENTITY_KIND="$2"
+                shift 2
+                ;;
+            --identity)
+                (($# >= 2)) || die 64 '--identity needs a value'
+                [[ -z "$IDENTITY" ]] || die 64 '--identity appears more than once'
+                IDENTITY="$2"
+                shift 2
+                ;;
+            --if-record-sha256)
+                (($# >= 2)) || die 64 '--if-record-sha256 needs a value'
+                [[ -z "$EXPECTED_SHA256" ]] || die 64 '--if-record-sha256 appears more than once'
+                EXPECTED_SHA256="$2"
+                shift 2
+                ;;
+            --if-current-identity-kind)
+                (($# >= 2)) || die 64 '--if-current-identity-kind needs a value'
+                [[ -z "$CURRENT_IDENTITY_KIND" ]] || die 64 '--if-current-identity-kind appears more than once'
+                CURRENT_IDENTITY_KIND="$2"
+                shift 2
+                ;;
+            --if-current-identity)
+                (($# >= 2)) || die 64 '--if-current-identity needs a value'
+                [[ -z "$CURRENT_IDENTITY" ]] || die 64 '--if-current-identity appears more than once'
+                CURRENT_IDENTITY="$2"
+                shift 2
+                ;;
+            --pid)
+                (($# >= 2)) || die 64 '--pid needs a value'
+                BY_PID="$2"
+                shift 2
+                ;;
+            --host)
+                (($# >= 2)) || die 64 '--host needs a value'
+                BY_HOST="$2"
+                shift 2
+                ;;
+            *)
+                die 64 "unsupported option: $1"
+                ;;
+        esac
+    done
+    [[ -n "$ROOT" ]] || die 64 '--root is required'
+    [[ -n "$ADDRESS" ]] || die 64 '--as is required'
+    validate_address "$ADDRESS"
+    validate_pid "$BY_PID"
+    if [[ -z "$BY_HOST" ]]; then
+        BY_HOST="$(hostname -s)" || die 74 'could not determine the host'
+    fi
+    validate_token "$BY_HOST" host
+    require_seat
+}
+
+run_register() {
+    local now claimed_at event observed_sha256 current_kind current_identity
+
+    parse_common "$@"
+    validate_token "$CHANNEL" channel
+    if [[ "$CHANNEL" != acp ]]; then
+        validate_token "$HANDLE" handle
+    fi
+    if [[ -z "$IDENTITY_KIND" && -z "$IDENTITY" ]]; then
+        case "$CHANNEL" in
+            orca) IDENTITY_KIND=orca-tab ;;
+            tmux) IDENTITY_KIND=tmux-session ;;
+            *) IDENTITY_KIND="$CHANNEL" ;;
+        esac
+        IDENTITY="$HANDLE"
+    elif [[ -z "$IDENTITY_KIND" || -z "$IDENTITY" ]]; then
+        die 64 '--identity-kind and --identity must appear together'
+    fi
+    validate_token "$IDENTITY_KIND" identity-kind
+    validate_token "$IDENTITY" identity
+    if [[ "$CHANNEL" == acp ]]; then
+        [[ "$IDENTITY_KIND" == acp-session &&
+           "$HANDLE" =~ ^acp-[a-zA-Z0-9][a-zA-Z0-9_-]*:/[^:[:cntrl:]]*:[^:[:space:]]+$ &&
+           "${HANDLE##*:}" == "$IDENTITY" ]] ||
+            die 64 "malformed ACP handle or identity: $HANDLE; use acp-agent:/absolute/cwd:session with acp-session identity"
+    fi
+    if [[ -n "$EXPECTED_SHA256" && ! "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+        die 64 '--if-record-sha256 must be one lowercase SHA-256 digest'
+    fi
+    if [[ -z "$CURRENT_IDENTITY_KIND" && -n "$CURRENT_IDENTITY" ]] ||
+       [[ -n "$CURRENT_IDENTITY_KIND" && -z "$CURRENT_IDENTITY" ]]; then
+        die 64 '--if-current-identity-kind and --if-current-identity must appear together'
+    fi
+    if [[ -n "$CURRENT_IDENTITY_KIND" ]]; then
+        validate_token "$CURRENT_IDENTITY_KIND" current-identity-kind
+        validate_token "$CURRENT_IDENTITY" current-identity
+    fi
+    now="$(now_epoch)"
+    acquire_writer_lock
+    if [[ -n "$CURRENT_IDENTITY_KIND" ]]; then
+        [[ -f "$RECORD" && ! -L "$RECORD" ]] ||
+            die 75 'reachability identity changed before conditional refresh'
+        validate_record "$RECORD"
+        current_kind="$(jq -r '
+            if has("identity") then .identity.kind
+            elif .channel == "orca" then "orca-tab"
+            elif .channel == "tmux" then "tmux-session"
+            else .channel end
+        ' "$RECORD")"
+        current_identity="$(jq -r '
+            if has("identity") then .identity.value else .handle end
+        ' "$RECORD")"
+        [[ "$current_kind" == "$CURRENT_IDENTITY_KIND" &&
+           "$current_identity" == "$CURRENT_IDENTITY" ]] ||
+            die 75 'reachability identity changed before conditional refresh'
+    fi
+    if [[ -n "$EXPECTED_SHA256" ]]; then
+        [[ -f "$RECORD" && ! -L "$RECORD" ]] ||
+            die 75 'reachability record changed before conditional refresh'
+        observed_sha256="$(sha256sum "$RECORD" | cut -d ' ' -f1)" ||
+            die 74 'could not hash the reachability record'
+        [[ "$observed_sha256" == "$EXPECTED_SHA256" ]] ||
+            die 75 'reachability record changed before conditional refresh'
+    fi
+    if [[ -e "$RECORD" || -L "$RECORD" ]]; then
+        validate_record "$RECORD"
+        claimed_at="$(jq -r '.claimed_at' "$RECORD")"
+        event=refreshed
+    else
+        claimed_at="$now"
+        event=registered
+    fi
+    publish_record "$claimed_at" "$now"
+    printf '%s address=%s refreshed_at=%s identity_kind=%s identity=%s\n' \
+        "$event" "$ADDRESS" "$now" "$IDENTITY_KIND" "$IDENTITY"
+}
+
+run_unregister() {
+    parse_common "$@"
+    [[ -z "$CHANNEL" && -z "$HANDLE" && -z "$IDENTITY_KIND" && -z "$IDENTITY" &&
+       -z "$EXPECTED_SHA256" && -z "$CURRENT_IDENTITY_KIND" && -z "$CURRENT_IDENTITY" ]] ||
+        die 64 'unregister does not accept channel, handle, or identity'
+    acquire_writer_lock
+    [[ -e "$RECORD" || -L "$RECORD" ]] ||
+        die 66 "reachability record does not exist: $RECORD"
+    validate_record "$RECORD"
+    rm -- "$RECORD" || die 74 'could not remove the reachability record'
+    printf 'unregistered address=%s\n' "$ADDRESS"
+}
+
+run_evict() {
+    local now refreshed age holder='unknown'
+
+    parse_common "$@"
+    [[ -z "$CHANNEL" && -z "$HANDLE" && -z "$IDENTITY_KIND" && -z "$IDENTITY" &&
+       -z "$EXPECTED_SHA256" && -z "$CURRENT_IDENTITY_KIND" && -z "$CURRENT_IDENTITY" ]] ||
+        die 64 'evict does not accept channel, handle, or identity'
+    acquire_writer_lock
+    [[ -e "$RECORD" || -L "$RECORD" ]] ||
+        die 66 "reachability record does not exist: $RECORD"
+    validate_record "$RECORD"
+    now="$(now_epoch)"
+    refreshed="$(jq -r '.refreshed_at' "$RECORD")"
+    age=$((now - refreshed))
+    ((age > STALE_SECONDS)) ||
+        die 65 "reachability record is not stale: address=$ADDRESS age=${age}s"
+    exec 8>"$SEAT/.standby.lock" || die 74 'could not inspect the standby lease'
+    if ! flock -n 8; then
+        [[ ! -r "$SEAT/standby-holder" ]] || holder="$(<"$SEAT/standby-holder")"
+        die 75 "standby lease is held: address=$ADDRESS holder=$holder"
+    fi
+    rm -- "$RECORD" || die 74 'could not evict the reachability record'
+    printf 'evicted address=%s age=%ss\n' "$ADDRESS" "$age"
+}
+
+run_status() {
+    local now refreshed age state
+
+    parse_common "$@"
+    [[ -z "$CHANNEL" && -z "$HANDLE" && -z "$IDENTITY_KIND" && -z "$IDENTITY" &&
+       -z "$EXPECTED_SHA256" && -z "$CURRENT_IDENTITY_KIND" && -z "$CURRENT_IDENTITY" ]] ||
+        die 64 'status does not accept channel, handle, or identity'
+    if [[ ! -e "$RECORD" && ! -L "$RECORD" ]]; then
+        printf 'absent\n'
+        return
+    fi
+    validate_record "$RECORD"
+    now="$(now_epoch)"
+    refreshed="$(jq -r '.refreshed_at' "$RECORD")"
+    age=$((now - refreshed))
+    if ((age > STALE_SECONDS)); then
+        state=stale
+    else
+        state=present
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\n' "$state" "$refreshed" "$age" \
+        "$(jq -r '.channel' "$RECORD")" "$(jq -r '.handle' "$RECORD")"
+}
+
+(($# > 0)) || die 64 'usage: reach-reachability <register|unregister|evict|status> [options]'
+operation="$1"
+shift
+case "$operation" in
+    register) run_register "$@" ;;
+    unregister) run_unregister "$@" ;;
+    evict) run_evict "$@" ;;
+    status) run_status "$@" ;;
+    *) die 64 "unsupported operation: $operation" ;;
+esac

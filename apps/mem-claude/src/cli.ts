@@ -1,0 +1,110 @@
+#!/usr/bin/env node
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
+import { doctor } from "./doctor.js";
+import { correctCommand, getCommand, recallCommand, rememberCommand } from "./explicit.js";
+import { sessionStart, stop, userPromptSubmit } from "./hooks.js";
+import { installClaude } from "./install.js";
+import { importRepository } from "./import.js";
+import { MESSAGES } from "./messages.js";
+import { runWorker } from "./worker.js";
+
+async function readStdin(): Promise<unknown> {
+	const chunks: Buffer[] = [];
+	for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+	const text = Buffer.concat(chunks).toString("utf8").trim();
+	return text ? JSON.parse(text) : {};
+}
+
+function option(args: string[], name: string): string | undefined {
+	const index = args.indexOf(name);
+	return index >= 0 ? args[index + 1] : undefined;
+}
+
+async function main(): Promise<number> {
+	const [command, ...args] = process.argv.slice(2);
+	if (command === "session-start") {
+		process.stdout.write(`${await sessionStart(await readStdin())}\n`);
+		return 0;
+	}
+	if (command === "user-prompt-submit") {
+		process.stdout.write(`${await userPromptSubmit(await readStdin())}\n`);
+		return 0;
+	}
+	if (command === "stop") {
+		await stop(await readStdin());
+		return 0;
+	}
+	if (command === "worker") {
+		await runWorker();
+		return 0;
+	}
+	if (command === "install") {
+		const configDir = option(args, "--config-dir");
+		if (!configDir || !isAbsolute(configDir)) throw new Error("--config-dir must be absolute");
+		const programPath = resolve(process.argv[1] ?? "sno-mem-claude");
+		await installClaude({
+			configDir,
+			programPath,
+			dryRun: args.includes("--dry-run"),
+			writeOutput: line => process.stdout.write(`${line}\n`),
+		});
+		return 0;
+	}
+	if (command === "import") {
+		const repo = option(args, "--repo");
+		if (args.includes("--user") || !repo || !isAbsolute(repo)) throw new Error("import requires --repo <absolute-root>");
+		const result = await importRepository(repo);
+		process.stdout.write(`blocks fed: ${result.blocksFed}\nreceipt: ${result.receiptPath}\n`);
+		return 0;
+	}
+	if (command === "doctor") {
+		const configDir = option(args, "--config-dir") ?? process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude");
+		const lines = await doctor(configDir).catch(() => [MESSAGES.doctorUnavailable]);
+		for (const line of lines) process.stdout.write(`${line}\n`);
+		return 0;
+	}
+	if (command === "recall") {
+		const result = await recallCommand(args.join(" "));
+		process.stdout.write(`${result.text}\n`);
+		return result.ok ? 0 : 1;
+	}
+	if (command === "get") {
+		const result = await getCommand(args[0] ?? "");
+		process.stdout.write(`${result.text}\n`);
+		return result.ok ? 0 : 1;
+	}
+	if (command === "remember") {
+		const result = await rememberCommand(args.join(" "));
+		process.stdout.write(`${result.text}\n`);
+		return result.ok ? 0 : 1;
+	}
+	if (command === "correct") {
+		const result = await correctCommand(args[0] ?? "", args.slice(1).join(" "));
+		process.stdout.write(`${result.text}\n`);
+		return result.ok ? 0 : 1;
+	}
+	process.stderr.write(`${MESSAGES.usage}\n`);
+	return 2;
+}
+
+main().then(code => {
+	process.exitCode = code;
+	if (["session-start", "user-prompt-submit", "stop", "worker"].includes(process.argv[2] ?? "")) {
+		process.stdout.write("", () => process.exit(code));
+	}
+}, error => {
+	const reason = error instanceof Error ? error.message : "engine-failed";
+	const command = process.argv[2];
+	if (command === "session-start" || command === "user-prompt-submit" || command === "stop") {
+		process.stderr.write(`${JSON.stringify({ event: command, reason: "invalid-input" })}\n`);
+		if (command !== "stop") {
+			const hookEventName = command === "session-start" ? "SessionStart" : "UserPromptSubmit";
+			process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext: "" } })}\n`);
+		}
+		process.exitCode = 0;
+	} else {
+		process.stderr.write(`${reason}\n`);
+		process.exitCode = 1;
+	}
+});

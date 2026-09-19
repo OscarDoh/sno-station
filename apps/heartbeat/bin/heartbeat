@@ -1,0 +1,630 @@
+#!/usr/bin/env bash
+if [ "${BASH_VERSINFO[0]}" -lt 5 ]; then
+  printf 'heartbeat: needs Bash 5 or newer on PATH as bash (this one is %s); install it and run again.\n' "$BASH_VERSION" >&2
+  exit 1
+fi
+# heartbeat — a wake-up that cannot be missed, and a hook that is allowed to fail.
+#
+# A dead watcher looks exactly like a quiet one: nothing reports it, and the job it watched
+# finishes hours before anyone notices. So the two jobs stay separated here and are never
+# mixed back together:
+#
+#   the TICK is the guarantee   -- it happens on schedule and always writes a line
+#   the HOOK is best effort     -- it may fail, hang, or print nothing, and the tick still lands
+#
+# The hook's exit status is therefore RECORDED, never obeyed. A tick counter makes a skipped
+# tick visible in the log rather than invisible, and every line is appended in one write so a
+# reader tailing the file never sees half of one.
+#
+# MANY AGENTS, NO LOCK. Heartbeats are independent; nothing is shared, so nothing is serialized
+# and no agent ever waits on another. What is enforced instead is that A LABEL IS NOT AN
+# ADDRESS: the address is (owner, label), and the owner is read from the session environment
+# rather than passed on the command line. Two agents may both run `card-B` and never see each
+# other; one agent may not run `card-B` twice. Stopping reaches only your own.
+#
+#   heartbeat --interval 20 --label train-1500 --log /path/beat.log -- \
+#       tail -1 outputs/.../metrics.jsonl
+#   heartbeat --stop train-1500          # stop the one you started
+#   heartbeat --list                     # everything running, yours marked
+#
+# Exit: 0 success, including a watch that ended · 2 bad arguments · 3 no such heartbeat of
+#       yours · 4 you already run one under that label.
+
+set -Eeuo pipefail
+
+check_prerequisites() {
+  local tool use version available missing=0
+  for tool in timeout tail flock; do
+    available=yes
+    case "$tool" in
+      timeout) use='bound hook execution' ;;
+      tail) use='read ticks until the heartbeat stops' ;;
+      flock) use='coordinate file locks' ;;
+    esac
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      available=no
+    elif [[ "$tool" != flock ]]; then
+      version="$("$tool" --version 2>/dev/null)" || available=no
+      [[ "${version%%$'\n'*}" == *'GNU coreutils'* ]] || available=no
+    fi
+    if [[ "$available" == no ]]; then
+      printf 'heartbeat: needs %s — %s; install it and run again.\n' "$tool" "$use" >&2
+      missing=$((missing + 1))
+    fi
+  done
+  ((missing == 0)) || exit 1
+}
+check_prerequisites
+
+readonly HOOK_TIMEOUT_FRACTION=2   # a hook may use at most half the interval before it is killed
+readonly MIN_HOOK_TIMEOUT=10
+readonly OUTPUT_LIMIT=600          # bytes of hook output kept per line, enforced at the source
+readonly DEFAULT_MAX_HOURS=24      # a forgotten heartbeat stops itself rather than ticking forever
+readonly DEFAULT_INTERVAL=600      # seconds = 10 minutes; every tick becomes one message once a reader is attached
+readonly BARE_MINUTES_LIMIT=120    # a bare --interval above this is almost certainly a seconds habit; refuse, never guess
+readonly STOP_WAIT_SECONDS=15
+
+readonly STATE_ROOT="${HEARTBEAT_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/heartbeat}"
+readonly RUN_ROOT="$STATE_ROOT/run"
+
+usage() {
+  cat <<'USAGE'
+usage: heartbeat --label NAME [--interval MINUTES] [--log PATH] [--until-file PATH]
+                 [--max-ticks N] [--max-hours H] [-- COMMAND [ARG ...]]
+       heartbeat --stop NAME
+       heartbeat --list
+
+Two shapes, and nothing else should ever be hand-written:
+
+  report every so often   heartbeat --interval 30 --label train --log L -- <hook command>
+  wait until it is done   heartbeat --label build --until-file out/result.json
+
+  --label       name for this heartbeat, written on every line (required)
+                (--name is accepted as the same flag)
+  --interval    time between ticks, in MINUTES (default: 10). A bare number is
+                minutes; a unit overrides it: 30s, 10m, 2h. A bare number above
+                120 is refused rather than guessed at — write 10 for ten minutes,
+                or 600s if you really mean seconds. (--every is accepted as the
+                same flag.) It does not change how fast --until-file is noticed;
+                that is checked every second either way
+  --log         file to append to (default: one under the heartbeat state directory,
+                whose path is printed when you arm)
+  --until-file  stop cleanly once this path holds content; checked every second. It must
+                NOT exist yet when you arm — an output file the job opens at the start is
+                not a completion marker. (--until is accepted as the same flag)
+  --max-ticks   stop after N ticks (default: unlimited)
+  --max-hours   stop after H hours (default: 24; 0 disables)
+  --            everything after this is the hook command, run once per tick. Optional when
+                --until-file is given: with no hook each tick writes "waiting"
+
+  --stop NAME   stop YOUR heartbeat with that label; another owner's is never reachable
+  --list        every heartbeat running on this machine, yours marked "you"
+
+Every ending says on stdout WHICH ending it was — FINISHED, NOT FINISHED, or STOPPED — so
+the notification that wakes you can never make "the job is done" look like "I gave up".
+
+The hook's exit status is recorded and never acted on. A tick happens even when the hook
+fails, hangs, or writes nothing. A heartbeat's owner comes from the session environment, not
+from an argument, so one agent can neither stop nor collide with another agent's heartbeat.
+USAGE
+}
+
+die() {
+  printf 'heartbeat: %s\n' "$1" >&2
+  exit 2
+}
+
+# The owner is READ from the environment, never taken as a command argument. That is what makes
+# "stop your own" hold without a lock: a label typed on the command line addresses nothing
+# outside the session that typed it. HEARTBEAT_OWNER is a deliberate override — it exists for
+# the self-test and for a person who wants one stable identity across shells — and it is first
+# precisely because an override that loses to an ambient variable is not an override.
+owner_id() {
+  local id
+  for id in "${HEARTBEAT_OWNER:-}" "${CLAUDE_CODE_SESSION_ID:-}" \
+            "${CODEX_COMPANION_SESSION_ID:-}" "${CODEX_SESSION_ID:-}"; do
+    if [[ -n $id ]]; then
+      printf '%s' "$id"
+      return 0
+    fi
+  done
+  # No agent session: a person at a terminal. All of their heartbeats share one owner, which is
+  # the truth — it is one person.
+  printf 'local-%s' "$(id -un)"
+}
+
+# Registry keys include the full identity through a digest. The stored fields are checked before
+# a management command trusts the path, so a path collision can never authorize a signal.
+registry_key() {
+  printf '%s' "$1" | sha256sum | awk '{print $1}'
+}
+
+# A live heartbeat, not merely a live pid. Pids are recycled, and a loose `pgrep -f heartbeat`
+# matches the shell doing the checking — which is how a cleanup kills its own caller.
+pid_is_heartbeat() {
+  local pid="$1"
+  [[ $pid =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  if [[ -r /proc/$pid/cmdline ]]; then
+    tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'heartbeat' || return 1
+  else
+    ps -o command= -p "$pid" 2>/dev/null | grep -q 'heartbeat' || return 1
+  fi
+  return 0
+}
+
+claim_field() {
+  local info="$1" want="$2" key value
+  [[ -r $info ]] || return 1
+  while IFS='=' read -r key value; do
+    if [[ $key == "$want" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  done <"$info"
+  return 1
+}
+
+# A claim whose process is gone is litter, not a conflict. Everything that reads the registry
+# reaps it, so no cleanup job has to exist and none can be forgotten.
+reap_dead_claims() {
+  local dir pid grave
+  [[ -d $RUN_ROOT ]] || return 0
+  for dir in "$RUN_ROOT"/*/*/; do
+    [[ -d $dir ]] || continue
+    if [[ ! -r $dir/info ]]; then
+      # A claim is renamed into place complete, so a directory without an `info` is litter and
+      # never a claim mid-construction. It still gets a grace minute: nothing here deletes a
+      # directory it cannot explain, and a reaper that races an armer would kill the heartbeat
+      # before its first tick — the silent death this whole unit exists to prevent.
+      [[ -z "$(find "$dir" -maxdepth 0 -mmin -1 2>/dev/null)" ]] && rm -rf -- "$dir"
+      continue
+    fi
+    pid="$(claim_field "$dir/info" pid || true)"
+    if [[ -z $pid ]] || ! pid_is_heartbeat "$pid"; then
+      # Steal before delete, and re-check after the steal. Between the liveness check
+      # above and a plain rm -rf, an armer can replace the dead claim with a live one,
+      # and the rm then deletes the live claim. The rename is atomic, so what gets
+      # re-checked is exactly what will be deleted; a live claim caught in the window is
+      # put back. A leftover graveyard from a killed reaper has no live pid and is
+      # collected by the next pass like any other dead claim.
+      grave="${dir%/}.reap.$$"
+      mv -T -- "${dir%/}" "$grave" 2>/dev/null || continue
+      pid="$(claim_field "$grave/info" pid || true)"
+      if [[ -n $pid ]] && pid_is_heartbeat "$pid"; then
+        mv -T -- "$grave" "${dir%/}" 2>/dev/null ||
+          printf 'heartbeat: warning: could not restore a live claim at %s\n' "$dir" >&2
+      else
+        rm -rf -- "$grave"
+      fi
+    fi
+  done
+}
+
+do_list() {
+  reap_dead_claims
+  local me dir owner label pid log mark found=0
+  me="$(owner_id)"
+  printf '%-4s %-24s %-20s %-8s %s\n' 'WHO' 'OWNER' 'LABEL' 'PID' 'LOG'
+  for dir in "$RUN_ROOT"/*/*/; do
+    [[ -r $dir/info ]] || continue
+    owner="$(claim_field "$dir/info" owner || printf '?')"
+    label="$(claim_field "$dir/info" label || printf '?')"
+    pid="$(claim_field "$dir/info" pid || printf '?')"
+    log="$(claim_field "$dir/info" log || printf '?')"
+    mark='--'
+    [[ $owner == "$me" ]] && mark='you'
+    printf '%-4s %-24s %-20s %-8s %s\n' "$mark" "${owner:0:24}" "${label:0:20}" "$pid" "$log"
+    found=1
+  done
+  ((found)) || printf '(no heartbeat is running)\n'
+  return 0
+}
+
+do_stop() {
+  local label="$1"
+  reap_dead_claims
+  local me dir pid waited other
+  me="$(owner_id)"
+  dir="$RUN_ROOT/$(registry_key "$me")/$(registry_key "$label")"
+
+  if [[ ! -r $dir/info ]] ||
+     [[ "$(claim_field "$dir/info" owner || true)" != "$me" ]] ||
+     [[ "$(claim_field "$dir/info" label || true)" != "$label" ]]; then
+    printf 'heartbeat: you have no heartbeat labelled %s\n' "$label" >&2
+    # Another owner may well be running that label. Saying so is honest and still reaches
+    # nothing: naming a heartbeat is not addressing it.
+    other="$(grep -l -x -F "label=$label" "$RUN_ROOT"/*/*/info 2>/dev/null | head -1 || true)"
+    [[ -n $other ]] &&
+      printf 'heartbeat: another owner runs that label; it is not yours to stop\n' >&2
+    printf 'heartbeat: run heartbeat --list to see what is running\n' >&2
+    exit 3
+  fi
+
+  pid="$(claim_field "$dir/info" pid || true)"
+  if [[ -z $pid ]] || ! pid_is_heartbeat "$pid"; then
+    rm -rf -- "$dir"
+    printf 'heartbeat: %s was already gone; its claim is cleared\n' "$label"
+    return 0
+  fi
+
+  kill -TERM "$pid" 2>/dev/null || true
+  for ((waited = 0; waited < STOP_WAIT_SECONDS; waited++)); do
+    pid_is_heartbeat "$pid" || break
+    sleep 1
+  done
+  if pid_is_heartbeat "$pid"; then
+    printf 'heartbeat: %s (pid %s) did not stop within %ss; it was signalled, never killed\n' \
+      "$label" "$pid" "$STOP_WAIT_SECONDS" >&2
+    exit 3
+  fi
+  rm -rf -- "$dir"
+  printf 'heartbeat: stopped %s (pid %s)\n' "$label" "$pid"
+  return 0
+}
+
+if (($# == 0)); then
+  usage
+  exit 0
+fi
+
+# The two management verbs are answered before anything else, so neither needs a log, an
+# interval, or a hook.
+case "$1" in
+  --list)
+    (($# == 1)) || die "--list takes no other arguments"
+    do_list
+    exit 0
+    ;;
+  --stop)
+    [[ ${2:-} ]] || die "--stop needs a label"
+    (($# == 2)) || die "--stop takes only a label"
+    do_stop "$2"
+    exit 0
+    ;;
+esac
+
+interval=""
+label=""
+log_path=""
+until_file=""
+max_ticks=0
+max_hours="$DEFAULT_MAX_HOURS"
+hook=()
+
+# The aliases are the spellings agents actually reach for. Accepting them costs nothing;
+# refusing them cost real wake-ups, because a refused arm was replaced with a hand-written
+# waiter instead of a corrected flag. `--flag=value` is split for the same reason — it is
+# the other convention half the tools on this machine use. (`--` itself never matches the
+# split, and hook arguments are captured before this loop can see them.)
+while (($# > 0)); do
+  case "$1" in
+    --*=*) set -- "${1%%=*}" "${1#*=}" "${@:2}" ;;
+  esac
+  case "$1" in
+    --interval|--every) [[ ${2:-} ]] || die "$1 needs a value"; interval="$2"; shift 2 ;;
+    --label|--name)     [[ ${2:-} ]] || die "$1 needs a value"; label="$2";    shift 2 ;;
+    --log)      [[ ${2:-} ]] || die "--log needs a value";      log_path="$2"; shift 2 ;;
+    --until-file|--until) [[ ${2:-} ]] || die "$1 needs a value"; until_file="$2"; shift 2 ;;
+    --max-ticks)  [[ ${2:-} ]] || die "--max-ticks needs a value";  max_ticks="$2";  shift 2 ;;
+    --max-hours)  [[ ${2:-} ]] || die "--max-hours needs a value";  max_hours="$2";  shift 2 ;;
+    --help|-h)  usage; exit 0 ;;
+    --)         shift; hook=("$@"); break ;;
+    *)          die "unknown argument: $1 — the flags are --label --interval --log --until-file --max-ticks --max-hours, and the hook command goes after -- (see --help)" ;;
+  esac
+done
+
+# WAITING FOR SOMETHING MUST COST NO DECISIONS. The commonest job an agent has is "wake me when
+# X is done", and every field it has to fill in first is a field it can get wrong — which is why
+# agents write their own three-line waiter instead, and why those waiters hang forever on a typo
+# and report it to nobody. Only two things here are genuinely the agent's intent: what to wait
+# for, and what to call it. Everything else has an answer already.
+# THE DEFAULT UNIT IS MINUTES. A bare number is minutes; a suffix makes the unit explicit
+# (30s, 10m, 2h). One trap is refused outright: a bare number above BARE_MINUTES_LIMIT.
+# Everyone who types `--interval 600` learned the unit from a seconds-based tool and means
+# ten minutes — reading it as 600 minutes would arm a wake-up ten hours apart, silently,
+# and a silently wrong cadence is worse than a refused one.
+if [[ -n $interval ]]; then
+  [[ $interval =~ ^([0-9]+)(s|sec|secs|m|min|mins|h|hr|hrs)?$ ]] ||
+    die "--interval must be a duration — a bare number is MINUTES (10), or add a unit: 30s, 10m, 2h; got '$interval'"
+  interval_n="${BASH_REMATCH[1]}"
+  interval_unit="${BASH_REMATCH[2]}"
+  # Bounded BEFORE arithmetic: past nineteen digits bash wraps silently, and a wrapped
+  # value can slip under the bare-minutes guard and arm a nonsense cadence.
+  ((${#interval_n} <= 9)) || die "--interval '$interval' is implausibly large"
+  case "$interval_unit" in
+    s|sec|secs) interval="$((10#$interval_n))" ;;
+    h|hr|hrs)   interval="$((10#$interval_n * 3600))" ;;
+    m|min|mins) interval="$((10#$interval_n * 60))" ;;
+    '')
+      ((10#$interval_n <= BARE_MINUTES_LIMIT)) ||
+        die "--interval $interval_n means $interval_n MINUTES ($(awk -v n="$interval_n" 'BEGIN{printf "%.1f", n/60}') hours) — a bare number is minutes. Write $((10#$interval_n / 60)) for $((10#$interval_n / 60)) minutes, or ${interval_n}s if you really mean seconds"
+      interval="$((10#$interval_n * 60))" ;;
+  esac
+else
+  interval="$DEFAULT_INTERVAL"
+fi
+
+[[ $interval -ge 1 ]] || die "--interval must be at least one second"
+# A week between ticks is already not a cadence anyone is waiting on; anything past it is a
+# unit mistake that survived the guards above, and arming it would just burn --max-hours
+# in silence.
+((interval <= 604800)) || die "--interval '${interval}s' is longer than a week — that is not a tick cadence; check the unit"
+[[ $max_ticks =~ ^[0-9]+$ ]] || die "--max-ticks must be a non-negative integer"
+[[ $max_hours =~ ^[0-9]+([.][0-9]+)?$ ]] || die "--max-hours must be a non-negative number"
+[[ -n $label ]] || die "--label is required"
+[[ $label != */* ]] || die "--label may not contain a slash"
+
+owner="$(owner_id)"
+if [[ -z $log_path ]]; then
+  log_path="$STATE_ROOT/log/$(registry_key "$owner")/$(registry_key "$label").log"
+fi
+
+# A watch that would end at its FIRST check is never what anyone meant, and a heartbeat that
+# retires one second after it was armed is the death-at-birth this whole script exists to
+# prevent — arriving through a flag instead of through a crash. Measured: an agent pointed
+# --until-file at its results file, which the job had already created as an empty shell when it
+# started, and the heartbeat stopped itself on tick 1.
+if [[ -n $until_file && -e $until_file ]]; then
+  printf 'heartbeat: --until-file %s already exists\n' "$until_file" >&2
+  printf 'heartbeat: the watch would end on its first check, seconds after you armed it\n' >&2
+  printf 'heartbeat: --until-file names a path that appears only when the job is FINISHED;\n' >&2
+  printf 'heartbeat: a file the job opens at the start is not a completion marker\n' >&2
+  exit 2
+fi
+# A heartbeat with no hook and nothing to wait for would tick "waiting" at a wall it was never
+# told about. One of the two shapes must be named.
+if ((${#hook[@]} == 0)) && [[ -z $until_file ]]; then
+  die "nothing to do: give a hook command after -- , or --until-file to wait for, or both"
+fi
+
+max_seconds="$(awk -v h="$max_hours" 'BEGIN { printf "%d", h * 3600 }')"
+
+# Close every descriptor inherited from whoever started this. A heartbeat outlives its starter
+# by design, so an inherited lock or pipe becomes someone else's outage hours later: a deploy's
+# flock, inherited through its self-test, was still held by an orphaned heartbeat and blocked
+# the next deploy of this very skill for 120 seconds. Only 0, 1 and 2 are kept; the log is
+# opened per line and never held.
+close_inherited_fds() {
+  local entry fd fd_dir=/proc/self/fd
+  [[ -d "$fd_dir" ]] || fd_dir=/dev/fd
+  for entry in "$fd_dir"/*; do
+    fd="${entry##*/}"
+    [[ $fd =~ ^[0-9]+$ ]] || continue
+    ((fd > 2)) || continue
+    # Never close the descriptor bash is reading THIS script through. Closing it does not
+    # fail here — it fails hundreds of lines later, when bash's read-ahead buffer runs out
+    # mid-loop and the process exits quietly; where that point lands moves with the file's
+    # size, so it passes tests at one length and dies in production at another.
+    [[ $entry -ef $0 ]] && continue
+    exec {fd}>&- 2>/dev/null || true
+  done
+}
+close_inherited_fds
+
+mkdir -p -- "$(dirname -- "$log_path")" || die "cannot create the log directory"
+: >>"$log_path" || die "cannot append to $log_path"
+
+# --- claim the (owner, label) address -------------------------------------------------------
+# THE CLAIM IS RENAMED INTO PLACE COMPLETE. It is built in a private staging directory, filled
+# in, and then moved onto the address in one `rename(2)`. Two properties come out of that and
+# both are load-bearing:
+#
+#   * `mv -T` onto a non-empty directory FAILS, so "the address is taken" is still answered
+#     atomically — two agents racing to arm one label need no lock file, no flock, no retry
+#     protocol.
+#   * The claim never exists without its `info`. An empty claim directory would otherwise be
+#     read as litter by any other agent's --list or --stop and removed underneath the armer,
+#     killing the heartbeat before its first tick.
+#
+# A claim left behind by a process that is gone is cleared and the move retried exactly once —
+# never in a loop, because a claim that keeps coming back is a live heartbeat, not litter.
+owner_dir="$RUN_ROOT/$(registry_key "$owner")"
+claim_dir="$owner_dir/$(registry_key "$label")"
+stage_dir="$owner_dir/.staging.$$"
+claimed=0
+staged=0
+
+mkdir -p -- "$owner_dir" || die "cannot create the heartbeat registry"
+
+cleanup() {
+  ((staged)) && rm -rf -- "$stage_dir"
+  ((claimed)) && rm -rf -- "$claim_dir"
+  [[ -n ${hook_capture:-} ]] && rm -f -- "$hook_capture"
+  return 0
+}
+trap cleanup EXIT
+
+rm -rf -- "$stage_dir"
+mkdir -- "$stage_dir" || die "cannot create the heartbeat registry"
+staged=1
+{
+  printf 'owner=%s\n' "$owner"
+  printf 'label=%s\n' "$label"
+  printf 'pid=%s\n' "$$"
+  printf 'log=%s\n' "$log_path"
+  printf 'started=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} >"$stage_dir/info"
+
+if ! mv -T -- "$stage_dir" "$claim_dir" 2>/dev/null; then
+  existing_pid="$(claim_field "$claim_dir/info" pid || true)"
+  if [[ -n $existing_pid ]] && pid_is_heartbeat "$existing_pid"; then
+    printf 'heartbeat: you already run a heartbeat labelled %s (pid %s)\n' \
+      "$label" "$existing_pid" >&2
+    printf 'heartbeat: stop it with heartbeat --stop %s, or choose another --label\n' \
+      "$label" >&2
+    exit 4
+  fi
+  # The dead claim is STOLEN with one atomic rename before it is deleted. A plain rm -rf
+  # here races a second arm of the same label: both judge the old claim dead, one claims,
+  # and the other's rm deletes the fresh live claim — two heartbeats on one address, one
+  # of them unreachable by --stop. The rename can succeed for only one racer, and what it
+  # removes is exactly what it renamed; the loser's second mv then fails loudly.
+  graveyard="$owner_dir/.reap-arm.$$"
+  if mv -T -- "$claim_dir" "$graveyard" 2>/dev/null; then
+    rm -rf -- "$graveyard"
+  fi
+  mv -T -- "$stage_dir" "$claim_dir" 2>/dev/null ||
+    die "could not claim the label $label — a concurrent arm of the same label won it"
+fi
+staged=0
+claimed=1
+
+# THE TICK IS GUARANTEED TO BE WRITTEN. BEING TOLD IS NOT. Ticks land in a file, and a file
+# reaches nobody on its own — so arming this and walking away is silence, which is the exact
+# outcome it exists to prevent. Measured: an agent armed a thirty-minute report, attached
+# nothing, and heard nothing; the line telling it to attach a reader was in the skill, was read,
+# and was skipped. So the instruction is printed here instead, at the one moment it cannot be
+# skipped: in the output the agent reads immediately after arming.
+printf 'heartbeat: armed. NOTHING REACHES YOU until you attach a reader to the log:\n'
+# --pid makes the reader retire itself when this heartbeat exits. Without it every finished
+# watch leaves a tail running forever, and a reused log path then delivers every line twice.
+printf 'heartbeat:   Monitor({command: "tail --pid=%s -F -n0 %s", persistent: true, description: "%s ticks"})\n' \
+  "$$" "$log_path" "$label"
+printf 'heartbeat: every tick then arrives as one message. Say what it says.\n'
+
+hook_timeout=$((interval / HOOK_TIMEOUT_FRACTION))
+((hook_timeout >= MIN_HOOK_TIMEOUT)) || hook_timeout=$MIN_HOOK_TIMEOUT
+
+# One capture file for the hook's output, reused every tick and removed on exit.
+hook_capture=""
+if ((${#hook[@]} > 0)); then
+  hook_capture="$(mktemp "${TMPDIR:-/tmp}/heartbeat-hook.XXXXXX")" \
+    || die "cannot create the hook output capture file"
+fi
+
+tick=0
+stopping=0
+started_at="$SECONDS"
+
+# A single printf of one already-assembled string is one write for any line short enough to
+# fit the pipe buffer, so a reader tailing the log never sees a partial line.
+# A failed append must not end the watch: a full disk or a cleared ramdisk would otherwise kill
+# the heartbeat under `set -e`, which is the silent death this exists to prevent. The line goes
+# to stderr instead and the ticking continues.
+say() {
+  local line
+  line="$(printf '%s [%s] tick=%d %s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$label" "$tick" "$1")"
+  printf '%s\n' "$line" >>"$log_path" 2>/dev/null || printf 'heartbeat: %s\n' "$line" >&2
+}
+
+# EVERY ENDING SAYS WHICH ENDING IT WAS, and says it on stdout. The log line alone is not
+# enough: an agent that armed this in the background is woken by the task notification, reads
+# that, and acts. If "the job finished" and "I waited 24 hours and gave up" look alike there,
+# the agent reports a finished run that never finished — the quiet quit this script exists to
+# prevent, arriving at the very last line instead of the first.
+finish() {
+  local verdict="$1" detail="$2"
+  say "$verdict: $detail"
+  printf 'heartbeat: %s [%s] %s (after %d tick%s)\n' \
+    "$verdict" "$label" "$detail" "$tick" "$( ((tick == 1)) || printf s)"
+  exit 0
+}
+
+on_term() {
+  stopping=1
+}
+trap on_term TERM INT
+
+expired() {
+  ((max_seconds > 0)) && ((SECONDS - started_at >= max_seconds))
+}
+
+# The hook runs under a timeout and its status is captured rather than allowed to propagate:
+# `set -e` must not turn a failing hook into a missed heartbeat.
+run_hook() {
+  # No hook is a real shape, not a degenerate one: "wait until X is done" has nothing to run
+  # each tick. The tick still lands, because a line that says "waiting" is the whole difference
+  # between a watcher that is alive and one that died an hour ago.
+  if ((${#hook[@]} == 0)); then
+    say "waiting"
+    return 0
+  fi
+  local output status reader_rc pipe_rc
+  set +e
+  # Truncate at the SOURCE, not after capture. Capturing first and trimming afterwards means a
+  # hook like `yes` is buffered whole, which takes the heartbeat down with SIGSEGV on the first
+  # tick — precisely the failure this script exists to make impossible.
+  # The reader is bounded too, not only the hook. A hook that spawns a background child
+  # inheriting stdout and then exits leaves the pipe open after the hook's own timeout has
+  # come and gone — head keeps waiting for bytes that never come, the capture never
+  # returns, and every later tick, file check and wall clock is dead while the process
+  # still shows as running. Measured: a one-tick heartbeat froze until killed from
+  # outside. The bounded head is killed a little after the hook's own limit, the tick
+  # lands with whatever arrived, and the loop continues.
+  # The pipeline runs in THIS shell and lands in a file, not in a command substitution,
+  # so PIPESTATUS can bill the hook and the reader separately — under pipefail a killed
+  # reader would otherwise be recorded as the hook failing, which sends whoever reads the
+  # log to fix the wrong thing.
+  timeout --signal=TERM --kill-after=5 "$hook_timeout" "${hook[@]}" 2>&1 \
+    | timeout --signal=KILL "$((hook_timeout + 10))" head -c "$OUTPUT_LIMIT" >"$hook_capture"
+  # PIPESTATUS is reset by the very next command — including the assignment that reads
+  # it — so both statuses must be taken in one copy or the second read lands on air.
+  pipe_rc=("${PIPESTATUS[@]}")
+  status=${pipe_rc[0]}
+  reader_rc=${pipe_rc[1]:-0}
+  set -e
+  output="$(cat -- "$hook_capture" 2>/dev/null || true)"
+  output="${output//$'\n'/ | }"
+  if ((reader_rc > 128)); then
+    output="${output:+$output }[reader killed: a hook child kept the pipe open past the timeout]"
+  fi
+  case "$status" in
+    0)   say "ok ${output:-(no output)}" ;;
+    124) say "hook TIMED OUT after ${hook_timeout}s ${output:-(no output)}" ;;
+    *)   say "hook FAILED status=$status ${output:-(no output)}" ;;
+  esac
+}
+
+# A heartbeat that was WAITING for something and stopped without it did not finish, and must
+# never read as though it did.
+if [[ -n $until_file ]]; then unfinished='NOT FINISHED'; else unfinished='STOPPED'; fi
+hook_name='(none)'
+((${#hook[@]} > 0)) && hook_name="${hook[0]}"
+
+say "started interval=${interval}s hook_timeout=${hook_timeout}s owner=${owner}\
+${until_file:+ until=$until_file} hook=${hook_name}"
+
+while true; do
+  tick=$((tick + 1))
+  # Ticks ride a FIXED schedule anchored at the start, so time spent inside the hook
+  # counts against the interval instead of stretching it. Sleeping a full interval after
+  # every hook drifts by the hook's duration each tick — a thirty-minute cadence with a
+  # ten-minute hook actually ticks every forty. The hook is bounded at half the interval,
+  # so the next due time is never already past for a whole cycle.
+  next_due=$((started_at + tick * interval))
+  run_hook
+
+  # CONTENT, not mere presence. A job that creates its output file when it starts and fills it
+  # in when it ends would otherwise retire the heartbeat on tick 1. The price of this choice is
+  # that a bare `touch DONE` marker no longer ends a watch and the wall clock ends it instead:
+  # over-running is recoverable because the ticks keep landing, dying at birth is not.
+  if [[ -n $until_file && -s $until_file ]]; then
+    finish FINISHED "$until_file has content"
+  fi
+  if ((max_ticks > 0 && tick >= max_ticks)); then
+    finish "$unfinished" "reached --max-ticks $max_ticks"
+  fi
+  if ((stopping)); then
+    finish STOPPED "signalled"
+  fi
+  if expired; then
+    finish "$unfinished" "reached --max-hours $max_hours"
+  fi
+
+  # Sleep in one-second steps so a signal is noticed promptly rather than at the end of a
+  # twenty-minute interval, and so a finished job is never reported an interval late.
+  while ((SECONDS < next_due)); do
+    ((stopping)) && break
+    if [[ -n $until_file && -s $until_file ]]; then
+      finish FINISHED "$until_file has content"
+    fi
+    if expired; then
+      finish "$unfinished" "reached --max-hours $max_hours"
+    fi
+    sleep 1
+  done
+  if ((stopping)); then
+    finish STOPPED "signalled"
+  fi
+done

@@ -1,0 +1,148 @@
+.Dd September 10, 2018
+.Dt MAGREP 1
+.Os
+.Sh NAME
+.Nm magrep
+.Nd search messages matching a pattern
+.Sh SYNOPSIS
+.Nm
+.Op Fl c | Fl h | Fl o | Fl p | Fl q | Fl m Ar max
+.Op Fl v
+.Op Fl i
+.Op Fl l
+.Op Fl a | Fl d
+.Ar header Ns Cm \&: Ns Ar regex
+.Op Ar msgs\ ...
+.Sh DESCRIPTION
+.Nm
+prints the names of files from the specified
+.Ar msgs
+if the value of
+.Ar header
+matches the POSIX Extended Regular Expression
+.Ar regex .
+.Po
+See
+.Xr mmsg 7
+for the message argument syntax.
+.Pc
+.Pp
+If
+.Ar header
+is empty,
+.Nm
+matches against the maildir flags of
+.Ar msgs .
+.Pp
+If
+.Ar header
+is
+.Sq Cm \&* ,
+.Nm
+searches for the pattern in any header.
+.Pp
+If
+.Ar header
+is
+.Sq Cm \&/ ,
+.Nm
+searches any plain text parts of the
+.Ar msgs
+body.
+.Pp
+If no
+.Ar msgs
+are specified and
+.Nm
+is used interactively,
+the current sequence will be searched.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl a
+Search for
+.Ar regex
+in RFC 2822 address
+.Ar header
+parts only.
+.It Fl c
+Only print a count of matching headers.
+If
+.Fl v
+is specified,
+count non-matching headers instead.
+.It Fl d
+Decode the
+.Ar header
+according to RFC 2047 prior to searching.
+.It Fl h
+Like
+.Fl p
+but do not print the file name.
+.It Fl i
+Match
+.Ar regex
+case insensitively.
+.It Fl l
+Only search a message until a match has been found.
+.It Fl m Ar max
+Do not show more than
+.Ar max
+matches.
+.It Fl o
+Print each match only,
+not the entire line.
+This option is ignored if
+.Fl c ,
+.Fl q
+or
+.Fl v
+is specified.
+.It Fl p
+Print the filename,
+the header and the matching line
+for each of the matched
+.Ar msgs .
+If
+.Fl o
+is specified each match is printed,
+instead of the matching line.
+This option is ignored if
+.Fl c ,
+.Fl q
+or
+.Fl v
+is specified.
+.It Fl q
+Quiet mode: do not print anything,
+quit as soon as possible.
+.It Fl v
+Invert the match; print (or count) all files where
+.Ar regex
+does not match.
+.El
+.Sh EXIT STATUS
+The
+.Nm
+utility exits 0 on success, 1 if no match was found
+and >1 if an error occurs.
+.Sh SEE ALSO
+.Xr grep 1 ,
+.Xr mmsg 7 ,
+.Xr regex 7 /
+.Xr re_format 7
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh TRIVIA
+.Nm
+is not called mgrep because many tools with this name already exist.
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

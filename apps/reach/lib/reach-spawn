@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Extracted seat lifecycle: no private team registry, budget, dispatch or skill dependency.
+set -Eeuo pipefail
+release="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+kind="${1:?agent required}"
+address="${2:?address required}"
+cwd="${3:?cwd required}"
+window="${4:?window selection required}"
+adapter="${5-}"
+root="${SNO_REACH_ROOT:-$HOME/.local/state/sno-reach}"
+guide="$release/guide/agent-reach.md"
+[[ -f "$guide" ]] || { printf 'reach: installed guide unavailable: %s\n' "$guide" >&2; exit 66; }
+export SNO_REACH_ROOT="$root" SNO_REACH_ADDR="$address" SNO_REACH_GUIDE="$guide"
+context="You are the seat $address. Your state root is $root. Read the installed guide $guide before using Reach. Use sno reach inbox --as $address on a REACH-RING and follow its reply/dismiss rules. This installed guide and your seat identity are sufficient; do not load private workshop skills. No work is assigned by this startup message. After reading the guide, finish this turn. Remain idle for later input; do not run sno reach wait, sleep, or a polling loop merely to stay available."
+session="reach-$(printf '%s\n%s\n' "$root" "$address" | sha256sum | cut -c1-24)"
+exec 9>"$root/$address/.spawn.lock"
+flock -w 10 9 || { printf 'reach: another spawn owns this seat\n' >&2; exit 75; }
+[[ ! -e "$root/$address/reachable.json" && ! -L "$root/$address/reachable.json" ]] || {
+    printf 'reach: seat already registered: %s\n' "$address" >&2; exit 65;
+}
+channel=tmux
+created=no
+handle=''
+cleanup() {
+    local rc=$?
+    trap - EXIT
+    if [[ "$created" == yes && "$rc" != 0 ]]; then
+        if [[ "$channel" == acp ]]; then
+            timeout -k 2 10 acpx 9>&- --cwd "$cwd" --format json "$adapter" sessions close "$session" >&2 ||
+                printf 'reach: close failed; inspect this created session: %s\n' "$session" >&2
+        else
+            tmux kill-session -t "$session" || printf 'reach: close failed for created tmux session: %s\n' "$session" >&2
+        fi
+        if [[ -f "$root/$address/reachable.json" ]] &&
+           jq -e --arg handle "$handle" --arg pane "$handle" '.handle == $handle or (.channel == "tmux" and .identity.value == $pane)' "$root/$address/reachable.json" >/dev/null; then
+            "$release/lib/reach-reachability" unregister --root "$root" --as "$address" >&2 || true
+        fi
+    fi
+    exit "$rc"
+}
+trap cleanup EXIT
+if [[ "$window" == no && -n "$adapter" ]]; then
+    channel=acp
+    inventory="$(timeout -k 2 10 acpx 9>&- --cwd "$cwd" --format json "$adapter" sessions list --local)"
+    jq -e --arg cwd "$cwd" --arg name "$session" 'type == "array" and all(.[]; .cwd != $cwd or .name != $name or .closed == true)' <<<"$inventory" >/dev/null || {
+        printf 'reach: ACP session already exists or its index is invalid: %s\n' "$session" >&2; exit 65;
+    }
+    created=yes
+    timeout -k 2 45 acpx 9>&- --cwd "$cwd" --approve-all --format json --timeout 40 "$adapter" sessions new --name "$session" >/dev/null
+    metadata="$(timeout -k 2 10 acpx 9>&- --cwd "$cwd" --format json "$adapter" sessions show "$session")"
+    session_id="$(jq -er --arg name "$session" --arg cwd "$cwd" 'select(.name == $name and .cwd == $cwd and .closed == false) | .acpxRecordId | strings | select(length > 0)' <<<"$metadata")"
+    handle="acp-$adapter:$cwd:$session"
+    "$release/lib/reach-reachability" register --root "$root" --as "$address" --channel acp --handle "$handle" --identity-kind acp-session --identity "$session" >&2
+    queued="$(printf '%s\n' "$context" | timeout -k 2 20 acpx 9>&- --cwd "$cwd" --approve-all --format json --timeout 15 "$adapter" prompt -s "$session" --no-wait --file -)"
+    jq -se --arg id "$session_id" 'length == 1 and .[0].action == "prompt_queued" and .[0].acpxRecordId == $id and (. [0].requestId | type == "string" and length > 0)' <<<"$queued" >/dev/null
+else
+    [[ "$window" == yes ]] || printf 'reach: %s is not ACP-capable; creating a tmux seat\n' "$kind" >&2
+    session_id="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+    spawned_at="$(date +%s)"
+    handle="$(timeout 10 tmux 9>&- new-session -d -P -F '#{pane_id}' -s "$session" -c "$cwd" \
+        -e "SNO_REACH_ROOT=$root" -e "SNO_REACH_ADDR=$address" -e "SNO_REACH_GUIDE=$guide" \
+        -e "SNO_REACH_SESSION_ID=$session_id" \
+        "$release/lib/reach-agent" "$kind" "$context")"
+    created=yes
+    [[ "$handle" =~ ^%[0-9]+$ ]] || { printf 'reach: tmux returned invalid pane\n' >&2; exit 65; }
+    SNO_REACH_SKIP_WAKE_ADOPTION=1 "$release/bin/sno-reach" register --as "$address" --channel tmux --handle "$handle" >&2
+fi
+temporary="$(mktemp "$root/$address/.seat-runtime.XXXXXX")"
+# The transcript is the seat's own record of what it said; call verifies against it,
+# never against the screen. Claude writes <projects>/<cwd slug>/<session id>.jsonl; Codex
+# names its rollout file itself, so call finds it by cwd and start time.
+case "$kind" in
+    claude) transcript="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')/${session_id:-}.jsonl" ;;
+    codex) transcript="codex-rollout" ;;
+    *) transcript="" ;;
+esac
+[[ -z "$transcript" ]] || jq -n --arg kind "$kind" --arg transcript "$transcript" --arg cwd "$cwd" --argjson spawned_at "${spawned_at:-0}" \
+    '{runtime:$kind, transcript:$transcript, cwd:$cwd, spawned_at:$spawned_at}' >"$root/$address/transcript.json"
+jq --arg runtime "$kind" '.runtime=$runtime' "$root/$address/seat.json" >"$temporary"
+chmod 0600 "$temporary"
+mv -- "$temporary" "$root/$address/seat.json"
+created=no
+printf 'seat %s channel=%s handle=%s\n' "$address" "$channel" "$handle"

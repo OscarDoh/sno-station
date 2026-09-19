@@ -1,0 +1,210 @@
+.Dd January 17, 2021
+.Dt MSHOW 1
+.Os
+.Sh NAME
+.Nm mshow
+.Nd render messages and extract MIME parts
+.Sh SYNOPSIS
+.Nm
+.Op Fl h Ar headers
+.Op Fl A Ar mimetypes
+.Op Fl nqrBFHLN
+.Op Ar msgs\ ...
+.Nm
+.Fl x Ar msg
+.Ar parts\ ...
+.Nm
+.Fl O Ar msg
+.Ar parts\ ...
+.Nm
+.Fl t
+.Ar msgs\ ...
+.Nm
+.Fl R
+.Ar msg
+.Sh DESCRIPTION
+.Nm
+renders the specified
+.Ar msgs
+to the standard output, by default.
+.Po
+See
+.Xr mmsg 7
+for the message argument syntax.
+.Pc
+If used interactively and no
+.Ar msgs
+are specified,
+.Nm
+displays the current message using colorization and a pager.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl h Ar headers
+Display the headers in the colon-separated list
+.Ar headers ,
+instead of the default headers
+.Sq Li from\&:subject\&:to\&:cc\&:date\&:reply\&-to\&: .
+.It Fl A Ar mimetypes
+Define
+.Sq Li "multipart/alternative"
+preference.
+.Ar mimetypes
+is a colon-separated list of
+MIME types which will be preferred,
+in the order given,
+when rendering
+.Sq Li "multipart/alternative"
+parts.
+If no MIME type matches, the last MIME part will be rendered.
+.Pp
+When
+.Ar mimetypes
+is
+.Sq Li all ,
+.Nm
+will render all parts of a
+.Sq Li "multipart/alternative"
+part.
+.Pp
+Defaults to
+.Sq Li "text/plain:text/html" .
+.It Fl n
+Don't update the current message link.
+.It Fl q
+Don't render the body, stop after header output.
+.It Fl r
+Don't render the body, print raw body.
+This may be dangerous to use on a tty.
+.It Fl B
+Decode encoded-words also in MIME parameters in direct violation
+of RFC 2047.
+This is useful if the attachment names look like
+.Sq Li =?UTF-8?Q?stuff?= .
+.It Fl F
+Don't apply filters to MIME parts.
+.It Fl H
+Don't decode the headers, print all raw headers.
+This may be dangerous to use on a tty.
+.It Fl L
+Don't filter the headers, print all decoded headers.
+.It Fl N
+Don't show MIME structure markers.
+.It Fl x Ar msg
+Switch to extraction mode: extract
+.Ar parts
+from the message
+.Ar msg
+into files.
+.Ar parts
+can be specified by number, filename or
+.Xr fnmatch 3
+pattern.
+If no
+.Ar parts
+are specified, extracts all attachments with a filename.
+.It Fl O Ar msg
+Like
+.Fl x
+but write to standard output.
+This may be dangerous to use on a tty.
+When used together with
+.Fl r ,
+the whole part is raw,
+that is,
+un-decoded and including MIME part headers.
+.It Fl t
+Switch to list mode: list all MIME parts
+of each
+.Ar msg .
+.It Fl R Ar msg
+Render the text parts from
+.Ar msg ,
+suitable for use in a reply.
+.El
+.Sh FILTERS
+.Nm ,
+by default, decodes all
+.Sq Li text/* ,
+.Sq Li message/rfc822
+and
+.Sq Li multipart/*
+parts,
+and re-encodes them into UTF-8 if necessary.
+.Pp
+Other filters can be specified in the file
+.Pa ${MBLAZE:-$HOME/.mblaze}/filter
+.Po
+or via
+.Ev MAILFILTER
+.Pc ,
+in the format:
+.Pp
+.D1 Ar type/subtype Ns Li \&: Ar command
+or
+.D1 Ar type Ns Li \&: Ar command
+.Pp
+.Nm
+will then spawn a pipe to
+.Ar command ,
+write the MIME part
+to standard input
+and display the output.
+The environment variable
+.Ev PIPE_CHARSET
+will be set to the charset declared in the MIME part,
+if known.
+.Pp
+Filters can communicate with
+.Nm
+using their exit status:
+.Bl -tag -compact -width 8n
+.It 0
+The output is printed as plain text.
+.It 62
+The output is printed raw, without escaping.
+.It 63
+Behave as if the filter never ran.
+.It 64
+The output is an RFC 5322 message that should be rendered again.
+.It 65 to 80
+Render the
+.Va n Ns \&- Ns 64th
+part of this text/multipart part.
+.El
+All other exit statuses are regarded as errors.
+.Sh ENVIRONMENT
+.Bl -tag -width MBLAZE_NOCOLOR
+.It Ev MAILFILTER
+Path to an alternative
+.Pa filter
+file.
+.It Ev MBLAZE_NOCOLOR
+If non-empty,
+.Nm
+will not spawn a colorization filter.
+.It Ev MBLAZE_PAGER
+Any non-empty value of the environment variable
+.Ev MBLAZE_PAGER
+is used instead of the standard pagination program, specified in
+.Ev PAGER .
+When empty or set to
+.Sq Ic cat ,
+no pager is spawned.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr mmsg 7
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

@@ -1,0 +1,559 @@
+#!/usr/bin/env bash
+if [ "${BASH_VERSINFO[0]}" -lt 5 ]; then
+	printf 'subscription-quota-check: needs Bash 5 or newer on PATH as bash (this one is %s); install it and run again.\n' "$BASH_VERSION" >&2
+	exit 2
+fi
+# subscription-quota-check : read subscription quota state for Codex and/or Claude Code.
+#
+# Never calls a model. Never spends anything. Never prints credentials.
+#
+# Answers "can work start now", not "how much money is left". These are the plan's 5-hour
+# and weekly windows, not API-key billing.
+#
+# Exit codes (stable; callers branch on these):
+#   0  every requested vendor is usable now
+#   1  at least one requested vendor is blocked (quota reached), none unreadable
+#   2  usage or argument error
+#   3  at least one requested vendor could not be read (unknown state)
+#   4  at least one requested vendor needs credentials refreshed / is not logged in
+
+set -Eeuo pipefail
+
+readonly PROG="${0##*/}"
+readonly CODEX_RPC_TIMEOUT_SEC=25
+readonly CLAUDE_TIMEOUT_SEC=30
+# ~/.claude.json cachedUsageUtilization is treated by its own writer as valid for one hour.
+# Past that horizon the numbers must be reported as unknown, never as a reading.
+readonly CACHE_INVALID_SEC=3600
+
+# Headroom on the tightest window below which the verdict is short_only instead of go.
+#
+# PICKED, NOT MEASURED. One reading says how much is used; it never says how fast it burns,
+# so no reading can prove a long job will fit. Owning one number here beats every caller
+# inventing its own: change this line and the whole company changes with it.
+readonly SHORT_ONLY_REMAINING_PCT=20
+
+usage() {
+	cat <<'EOF'
+subscription-quota-check — read Codex / Claude Code subscription quota without
+spending anything. Reports whether work can start now.
+
+Usage:
+  subscription-quota-check [--vendor codex|claude|both] [--json|--human] [--quiet]
+
+Options:
+  --vendor <v>   Which vendor to read. Default: both.
+  --json         One JSON object on stdout (default when stdout is not a terminal).
+  --human        One line per vendor on stdout (default when stdout is a terminal).
+  --quiet        Suppress the stderr progress note.
+  -h, --help     This text.
+
+Exit codes:
+  0  all requested vendors usable now
+  1  at least one blocked by quota
+  2  usage or argument error
+  3  at least one unreadable (state unknown)
+  4  at least one needs credentials refreshed
+
+Verdict, per vendor and overall:
+  go          the tightest window still has headroom
+  short_only  usable, but the tightest window has less than the configured headroom left
+  wait        blocked now; seconds_to_reset says for how long
+  owner_action blocked by a workspace limit; contact the workspace owner
+  unknown     could not be read, or the numbers could not be shown to be current
+  needs_auth  credentials need refreshing
+  n/a         not a subscription-limited session (API key / Bedrock / Vertex)
+
+Notes:
+  Reads only. This never invokes a model and never redeems a rate-limit reset credit.
+  Run it when a decision needs it, or after something was actually blocked. It is not
+  built to be polled: the Claude usage endpoint is itself rate limited.
+  To wait for a reset, arm the `heartbeat` skill using seconds_to_reset of the BLOCKING
+  window and re-run this probe in the hook — the reset instant is the server's to move,
+  so only a fresh read proves a block is gone.
+  This reads the credentials the two CLIs own. It does not measure accounts behind
+  OPENAI_BASE_URL or on another machine.
+EOF
+	if [[ -n "${OPENAI_BASE_URL:-}" ]]; then
+		printf '%s\n' '  OPENAI_BASE_URL is configured; its account quota is not measured here.'
+	else
+		printf '%s\n' "  using the harness's own endpoint; quota describes only the CLIs."
+	fi
+}
+
+note() { [[ "${QUIET}" == "1" ]] || printf '%s: %s\n' "$PROG" "$*" >&2; }
+die() {
+	printf '%s: %s\n' "$PROG" "$1" >&2
+	exit "${2:-2}"
+}
+
+require() {
+	local missing=0 cmd use available version
+	for cmd in "$@"; do
+		available=yes
+		case "$cmd" in
+			jq) use='read quota JSON' ;;
+			timeout) use='bound quota requests' ;;
+			date) use='read reset times' ;;
+			mkfifo) use='communicate with the quota service' ;;
+		esac
+		if ! command -v "$cmd" >/dev/null 2>&1; then
+			available=no
+		elif [[ "$cmd" == timeout ]]; then
+			version="$(timeout --version 2>/dev/null)" || available=no
+			[[ "${version%%$'\n'*}" == *'GNU coreutils'* ]] || available=no
+		fi
+		if [[ "$available" == no ]]; then
+			printf '%s: needs %s — %s; install it and run again.\n' "$PROG" "$cmd" "$use" >&2
+			missing=$((missing + 1))
+		fi
+	done
+	((missing == 0)) || exit 2
+}
+require jq timeout date mkfifo
+
+now_epoch() { date -u +%s; }
+
+# ---------------------------------------------------------------- Codex ------
+
+# Emits the raw JSON-RPC result line for account/rateLimits/read, or nothing.
+#
+# app-server exits the moment stdin closes, so stdin has to be held open until the answer
+# arrives. The hold also has to be CLOSABLE. Holding it with `tail -f /dev/null` is not:
+# nothing can close that pipe, so the pipeline only unwinds when the timeout expires and
+# every probe costs the full CODEX_RPC_TIMEOUT_SEC whether it succeeded or not. Measured
+# on codex-cli 0.147.0: 26 s per probe for an answer that lands in under 1 s. A FIFO whose
+# write end is a shell descriptor is closable, so the probe ends when the answer does.
+codex_rpc_read() {
+	local dir pid raw="" ticks=0
+	local -i max_ticks=$((CODEX_RPC_TIMEOUT_SEC * 10))
+
+	dir="$(mktemp -d "${SCRATCH}/codex-rpc.XXXXXX")" || return 0
+	mkfifo "$dir/in" || { rm -rf -- "$dir"; return 0; }
+
+	timeout "$CODEX_RPC_TIMEOUT_SEC" codex -s read-only app-server \
+		<"$dir/in" >"$dir/out" 2>/dev/null &
+	pid=$!
+
+	exec 9>"$dir/in"
+	printf '%s\n' \
+		'{"id":1,"method":"initialize","params":{"clientInfo":{"name":"quota-check","version":"1"}}}' \
+		'{"method":"initialized"}' \
+		'{"id":2,"method":"account/rateLimits/read"}' >&9
+
+	# Poll the capture file instead of reading the pipe: the server answers and then keeps
+	# serving, so a reader that waits for EOF would wait for the timeout again. Give up as
+	# soon as the server is gone — a fast failure must stay fast, because the caller retries.
+	while ((ticks < max_ticks)); do
+		raw="$(grep -m1 '"id":2' "$dir/out" 2>/dev/null || true)"
+		[[ -n "$raw" ]] && break
+		kill -0 "$pid" 2>/dev/null || break
+		sleep 0.1
+		ticks=$((ticks + 1))
+	done
+
+	exec 9>&-
+	kill "$pid" 2>/dev/null || true
+	wait "$pid" 2>/dev/null || true
+	rm -rf -- "$dir"
+	printf '%s' "$raw"
+}
+
+# True only when the CLI reports a logged-in ChatGPT account.
+#
+# Anchored on purpose. A bare search for "logged in" also matches "Not logged in", which
+# turns a logged-out account into "quota unknown" — the exact conflation this branch exists
+# to prevent. VERIFIED wording on codex-cli 0.147.0: `Logged in using ChatGPT`.
+codex_logged_in() {
+	local out
+	out="$(timeout 20 codex login status 2>&1)" || true
+	printf '%s' "$out" | grep -qiE '^[[:space:]]*Logged in'
+}
+
+# Builds the codex vendor object on stdout.
+codex_probe() {
+	local raw attempt=0
+
+	if ! command -v codex >/dev/null 2>&1; then
+		jq -n '{vendor:"codex",state:"unreadable",verdict:"unknown",
+		        reason:"codex command not found on PATH"}'
+		return
+	fi
+
+	while ((attempt < 2)); do
+		raw="$(codex_rpc_read)"
+		[[ -n "$raw" ]] && break
+		attempt=$((attempt + 1))
+		note "codex: empty response from app-server (attempt ${attempt}/2)"
+	done
+
+	if [[ -z "$raw" ]]; then
+		# Distinguish "not logged in" from "out of quota" — the research doc is explicit
+		# that conflating them is the common wrong report.
+		if codex_logged_in; then
+			jq -n '{vendor:"codex",state:"unreadable",verdict:"unknown",
+			        reason:"app-server returned no response after 2 attempts"}'
+		else
+			jq -n '{vendor:"codex",state:"needs_auth",verdict:"needs_auth",
+			        reason:"codex login status does not report a logged-in ChatGPT account"}'
+		fi
+		return
+	fi
+
+	if ! printf '%s' "$raw" | jq -e '.result.rateLimits' >/dev/null 2>&1; then
+		jq -n --arg r "$(printf '%s' "$raw" | head -c 200)" \
+			'{vendor:"codex",state:"unreadable",verdict:"unknown",
+			 reason:("unexpected payload: " + $r)}'
+		return
+	fi
+
+	printf '%s' "$raw" | jq -c \
+		--argjson now "$(now_epoch)" \
+		--argjson short "$SHORT_ONLY_REMAINING_PCT" \
+		--arg cli_version "$(codex --version 2>/dev/null | head -1)" '
+		def window($w):
+			if $w == null then null
+			else {
+				used_pct: $w.usedPercent,
+				window_minutes: $w.windowDurationMins,
+				resets_at_epoch: $w.resetsAt,
+				# A null reset time is reported as unknown. Never synthesised from the
+				# window length: the blocking bucket here was a 7-day window 37 minutes
+				# from reset, so window length is not a wait.
+				seconds_to_reset: (if $w.resetsAt == null then null else ($w.resetsAt - $now) end)
+			} end;
+		def bucket($b):
+			{
+				limit_id: $b.limitId,
+				limit_name: $b.limitName,
+				plan_type: $b.planType,
+				# Trust the reached flag over the percentage: blocked can precede 100%.
+				blocked: ($b.rateLimitReachedType != null),
+				owner_action: (($b.rateLimitReachedType // "")
+					| test("^workspace_(.*_)?(credits_depleted|usage_limit_reached)$")),
+				reached_type: $b.rateLimitReachedType,
+				spend_control_reached: $b.spendControlReached,
+				individual_limit: $b.individualLimit,
+				credits: {has: $b.credits.hasCredits, balance: $b.credits.balance,
+				          unlimited: $b.credits.unlimited},
+				primary: window($b.primary),
+				secondary: window($b.secondary)
+			};
+		.result as $r
+		| ($r.rateLimitsByLimitId // {}) as $all
+		| [ $all | to_entries[] | bucket(.value) ] as $buckets
+		| ($buckets | map(select(.blocked))) as $blocked
+		| ($blocked | map(select(.owner_action))) as $owner_action
+		# The tightest window across every bucket and both slots: the one that stops work
+		# first. Named in the output, so "short_only" is never a mystery verdict.
+		| ([ $all | to_entries[] | .key as $k
+		     | (.value.primary, .value.secondary) | select(. != null)
+		     | {limit_id: $k, used_pct: .usedPercent,
+		        window_minutes: .windowDurationMins,
+		        resets_at_epoch: .resetsAt,
+		        seconds_to_reset: (if .resetsAt == null then null else (.resetsAt - $now) end)} ]
+		   | sort_by(-.used_pct) | .[0]) as $tightest
+		| {
+			vendor: "codex",
+			cli_version: $cli_version,
+			state: (if ($owner_action | length) > 0 then "owner_action"
+			        elif ($blocked | length) > 0 then "blocked" else "ok" end),
+			verdict: (if ($owner_action | length) > 0 then "owner_action"
+			          elif ($blocked | length) > 0 then "wait"
+			          elif ($tightest != null and (100 - $tightest.used_pct) < $short)
+			          then "short_only"
+			          else "go" end),
+			tightest_window: $tightest,
+			buckets: $buckets,
+			# The headline: which bucket blocks, and when it frees up.
+			blocking: (if ($owner_action | length) > 0 then
+			             ($owner_action[0] | {limit_id, limit_name, reached_type,
+			              used_pct: .primary.used_pct, resets_at_epoch: null,
+			              seconds_to_reset: null,
+			              required_action: "contact_workspace_owner"})
+			           elif ($blocked | length) == 0 then null
+			           else ($blocked | sort_by(.primary.seconds_to_reset // 1e18) | .[0]
+			                 | {limit_id, limit_name, reached_type,
+			                    used_pct: .primary.used_pct,
+			                    resets_at_epoch: .primary.resets_at_epoch,
+			                    seconds_to_reset: .primary.seconds_to_reset}) end)
+		  }'
+}
+
+# --------------------------------------------------------------- Claude ------
+
+claude_cache_age_sec() {
+	local f="$HOME/.claude.json" fetched
+	[[ -r "$f" ]] || return 1
+	fetched="$(jq -r '.cachedUsageUtilization.fetchedAtMs // empty' <"$f" 2>/dev/null)" || return 1
+	[[ -n "$fetched" ]] || return 1
+	printf '%s' $(((($(now_epoch) * 1000) - fetched) / 1000))
+}
+
+# The structured path drops the ok/seeded flag, so it cannot report its own staleness.
+# Only the text path says so, in these two literal strings.
+# Returns 0 for stale, 1 for fresh, and 2 when the text check is unavailable.
+claude_text_is_stale() {
+	local out
+	out="$(timeout "$CLAUDE_TIMEOUT_SEC" claude --safe-mode --no-session-persistence \
+		-p "/usage" 2>/dev/null)" || return 2
+	[[ -n "$out" ]] || return 2
+	printf '%s' "$out" | grep -qiE 'Showing last-known usage|Could not refresh usage data'
+}
+
+claude_probe() {
+	local json age freshness="unknown"
+
+	if ! command -v claude >/dev/null 2>&1; then
+		jq -n '{vendor:"claude",state:"unreadable",verdict:"unknown",
+		        reason:"claude command not found on PATH"}'
+		return
+	fi
+
+	json="$(printf '%s\n' \
+		'{"type":"control_request","request_id":"q","request":{"subtype":"get_usage"}}' |
+		timeout "$CLAUDE_TIMEOUT_SEC" claude --safe-mode --no-session-persistence \
+			-p --input-format stream-json --output-format stream-json --verbose 2>/dev/null |
+		jq -c 'select(.type=="control_response") | .response.response' 2>/dev/null |
+		head -1)" || true
+
+	if [[ -z "$json" ]]; then
+		jq -n '{vendor:"claude",state:"unreadable",verdict:"unknown",
+		        reason:"get_usage control request returned no response"}'
+		return
+	fi
+
+	# rate_limits_available:false means API key / Bedrock / Vertex — plan limits do not
+	# apply at all. Reporting 0% there would be a lie in the usable direction.
+	if [[ "$(printf '%s' "$json" | jq -r '.rate_limits_available // false')" != "true" ]]; then
+		jq -n '{vendor:"claude",state:"not_applicable",verdict:"n/a",
+		        reason:"rate_limits_available is false: not a subscription-limited session"}'
+		return
+	fi
+
+	age="$(claude_cache_age_sec)" || age=""
+
+	# The text path decides freshness, and it always runs. fetchedAtMs cannot decide it:
+	# the writer refuses to rewrite an entry younger than five minutes, so a young
+	# timestamp is compatible with both a live fetch and a suppressed one. Only the text
+	# path says out loud that it served last-known data. It costs ~7 s of the ~8 s a claude
+	# probe takes, and this probe runs on demand, not on a timer.
+	if claude_text_is_stale; then
+		freshness="stale"
+	elif [[ $? != 1 ]]; then
+		freshness="unknown"
+	elif [[ -n "$age" ]] && ((age > CACHE_INVALID_SEC)); then
+		# Nothing complained, yet the cache is past the horizon its own writer honours.
+		freshness="unknown"
+	else
+		freshness="fresh"
+	fi
+
+	# Numbers that cannot be shown to be current do not answer "can work start now".
+	# Reporting them anyway is how a stale reading becomes a green light.
+	if [[ "$freshness" != "fresh" ]]; then
+		jq -n --arg f "$freshness" --arg a "${age:-unknown}" \
+			'{vendor:"claude",state:"unreadable",verdict:"unknown",freshness:$f,
+			  reason:("usage data is " + $f + " (cache age " + $a
+			          + "s); refusing to answer from numbers that may not be current")}'
+		return
+	fi
+
+	printf '%s' "$json" | jq -c \
+		--argjson now "$(now_epoch)" \
+		--argjson short "$SHORT_ONLY_REMAINING_PCT" \
+		--arg freshness "$freshness" \
+		--arg age "${age:-}" \
+		--arg cli_version "$(claude --version 2>/dev/null | head -1)" '
+		def iso2epoch($t):
+			if $t == null then null
+			else ($t | sub("\\.[0-9]+";"")
+			         | sub("(?<s>[+-][0-9]{2}):(?<m>[0-9]{2})$";"Z")
+			         | sub("Z$";"Z")
+			         | fromdateiso8601)
+			end;
+		def win($w):
+			if $w == null then null
+			else {
+				used_pct: $w.utilization,
+				remaining_pct: (100 - $w.utilization),
+				resets_at: $w.resets_at,
+				seconds_to_reset: (if $w.resets_at == null then null
+				                   else (iso2epoch($w.resets_at) - $now) end)
+			} end;
+		.rate_limits as $rl
+		| ($rl.limits // []) as $limits
+		| ($limits | map(select(.is_active)) | .[0]) as $binding
+		# is_active names the window that stops you first. When the server names none,
+		# fall back to whichever present window is fullest — never to just the 5-hour one,
+		# which reads "87% left" on a machine that is 73% through its week.
+		| (if $binding != null then $binding.percent
+		   else ([$rl.five_hour.utilization, $rl.seven_day.utilization]
+		         | map(select(. != null)) | max) end) as $tight_pct
+		| {
+			vendor: "claude",
+			cli_version: $cli_version,
+			# Blocked only at a full binding window; everything else is usable now.
+			state: (if ($binding != null and $binding.percent >= 100) then "blocked" else "ok" end),
+			verdict: (if ($binding != null and $binding.percent >= 100) then "wait"
+			          elif ($tight_pct != null and (100 - $tight_pct) < $short)
+			          then "short_only"
+			          else "go" end),
+			tightest_window: {limit_id: ($binding.kind // "widest_present"),
+			                  used_pct: $tight_pct,
+			                  resets_at: ($binding.resets_at // null),
+			                  seconds_to_reset: (if $binding.resets_at == null then null
+			                                     else (iso2epoch($binding.resets_at) - $now) end)},
+			freshness: $freshness,
+			cache_age_sec: (if $age == "" then null else ($age | tonumber) end),
+			subscription_type: .subscription_type,
+			five_hour: win($rl.five_hour),
+			seven_day: win($rl.seven_day),
+			model_scoped: [ $limits[] | select(.kind == "weekly_scoped")
+			                | {model: (.scope.model.display_name // "unknown"),
+			                   used_pct: .percent, resets_at: .resets_at} ],
+			binding_window: ($binding.kind // null),
+			overage: {enabled: $rl.extra_usage.is_enabled,
+			          used_pct: $rl.extra_usage.utilization,
+			          disabled_reason: $rl.extra_usage.disabled_reason},
+			blocking: (if ($binding != null and $binding.percent >= 100)
+			           then {limit_id: $binding.kind, used_pct: $binding.percent,
+			                 resets_at: $binding.resets_at,
+			                 seconds_to_reset: (iso2epoch($binding.resets_at) - $now)}
+			           else null end)
+		  }'
+}
+
+# --------------------------------------------------------------- output ------
+
+# One line per vendor: name, verdict, then the evidence the verdict came from.
+human_line() {
+	local obj="$1"
+	printf '%s' "$obj" | jq -r --argjson short "$SHORT_ONLY_REMAINING_PCT" '
+		def hhmm($s): if $s == null then "?"
+		              else ((($s/3600)|floor|tostring) + "h" + ((($s%3600)/60)|floor|tostring) + "m") end;
+		def pad($w): (. + (" " * ($w - length)));
+		(.vendor | pad(8)) as $v
+		| ((.verdict // "unknown") | ascii_upcase | pad(11)) as $verdict
+		| $v + " " + $verdict + (
+			if .state == "owner_action" then
+				"workspace limit " + .blocking.reached_type + "; contact workspace owner"
+			elif .state == "blocked" then
+				"\(.blocking.limit_id) at \(.blocking.used_pct)%, frees in "
+				+ hhmm(.blocking.seconds_to_reset)
+			elif .state == "ok" and .vendor == "codex" then
+				"tightest \(.tightest_window.limit_id) \(.tightest_window.used_pct)% used"
+				+ " · " + ([.buckets[] | "\(.limit_id):\(.primary.used_pct // "?")%"] | join(" "))
+			elif .state == "ok" then
+				"tightest \(.tightest_window.limit_id) \(.tightest_window.used_pct)% used"
+				+ " · 5h:\(.five_hour.used_pct)% 7d:\(.seven_day.used_pct)%"
+				+ " freshness:\(.freshness)"
+			else
+				.reason
+			end)'
+}
+
+# ----------------------------------------------------------------- main ------
+
+VENDOR="both"
+FORMAT=""
+QUIET=0
+
+while (($# > 0)); do
+	case "$1" in
+	--vendor)
+		[[ $# -ge 2 ]] || die "--vendor needs a value: codex, claude, or both" 2
+		VENDOR="$2"
+		shift 2
+		;;
+	--vendor=*)
+		VENDOR="${1#*=}"
+		shift
+		;;
+	--json)
+		FORMAT="json"
+		shift
+		;;
+	--human)
+		FORMAT="human"
+		shift
+		;;
+	--quiet)
+		QUIET=1
+		shift
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*) die "unknown argument: $1 (see --help)" 2 ;;
+	esac
+done
+readonly QUIET
+
+case "$VENDOR" in
+codex | claude | both) ;;
+*) die "--vendor must be codex, claude, or both (got: ${VENDOR})" 2 ;;
+esac
+
+if [[ -z "$FORMAT" ]]; then
+	if [[ -t 1 ]]; then FORMAT="human"; else FORMAT="json"; fi
+fi
+readonly VENDOR FORMAT
+
+# One scratch root for the whole run, removed however the script ends. The codex probe
+# needs a FIFO on disk; a leaked one would be a live named pipe nobody owns.
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/quota-check.XXXXXX")"
+readonly SCRATCH
+# `|| true` matters: under set -E a failing command inside an EXIT trap becomes the
+# script's exit status, which would report a good reading as a failure.
+trap 'rm -rf -- "$SCRATCH" 2>/dev/null || true' EXIT
+
+results=()
+[[ "$VENDOR" == "codex" || "$VENDOR" == "both" ]] && results+=("$(codex_probe)")
+[[ "$VENDOR" == "claude" || "$VENDOR" == "both" ]] && results+=("$(claude_probe)")
+
+((${#results[@]} > 0)) || die "no vendor probed" 2
+
+# Worst state wins the exit code, in this order.
+exit_code=0
+for obj in "${results[@]}"; do
+	case "$(printf '%s' "$obj" | jq -r '.state')" in
+	needs_auth) exit_code=4 ;;
+	unreadable) ((exit_code == 4)) || exit_code=3 ;;
+	blocked) ((exit_code >= 3)) || exit_code=1 ;;
+	owner_action) ((exit_code >= 3)) || exit_code=1 ;;
+	esac
+done
+
+# The overall verdict is the worst one present, in the same order the exit code uses.
+overall="go"
+for obj in "${results[@]}"; do
+	case "$(printf '%s' "$obj" | jq -r '.verdict // "unknown"')" in
+	needs_auth) overall="needs_auth" ;;
+	unknown) [[ "$overall" == "needs_auth" ]] || overall="unknown" ;;
+	owner_action) [[ "$overall" == "needs_auth" || "$overall" == "unknown" ]] || overall="owner_action" ;;
+	wait) [[ "$overall" == "needs_auth" || "$overall" == "unknown" || "$overall" == "owner_action" ]] || overall="wait" ;;
+	short_only) [[ "$overall" != "go" ]] || overall="short_only" ;;
+	esac
+done
+
+if [[ "$FORMAT" == "json" ]]; then
+	printf '%s\n' "${results[@]}" | jq -s \
+		--arg captured_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		--arg host "$(uname -n)" \
+		--arg verdict "$overall" \
+		--argjson short "$SHORT_ONLY_REMAINING_PCT" \
+		--argjson exit_code "$exit_code" \
+		'{ok: ($exit_code == 0), operation: "subscription-quota-check",
+		  captured_at: $captured_at,
+		  # Provenance travels with the number: these readings describe this host and the
+		  # accounts these CLI builds are logged into, and nothing else.
+		  host: $host,
+		  short_only_below_remaining_pct: $short,
+		  verdict: $verdict, exit_code: $exit_code, vendors: .}'
+else
+	for obj in "${results[@]}"; do human_line "$obj"; done
+fi
+
+exit "$exit_code"

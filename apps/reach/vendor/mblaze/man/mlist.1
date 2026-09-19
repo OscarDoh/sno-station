@@ -1,0 +1,104 @@
+.Dd April 30, 2020
+.Dt MLIST 1
+.Os
+.Sh NAME
+.Nm mlist
+.Nd list and filter messages
+.Sh SYNOPSIS
+.Nm
+.Op Fl DFPRST
+.Op Fl X Ar str
+.br
+.Op Fl dfprst
+.Op Fl x Ar str
+.br
+.Op Fl N | Fl n | Fl C | Fl c
+.br
+.Op Fl i
+.Op Ar dirs\ ...
+.Sh DESCRIPTION
+.Nm
+lists messages in the specified maildir folders
+.Ar dirs ,
+separated by newlines.
+If used non-interactively with no specified folders,
+.Nm
+reads directory names from the standard input.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl D
+Only list messages marked as draft.
+.It Fl F
+Only list messages marked as flagged.
+.It Fl P
+Only list messages marked as passed
+.Pq resent/forwarded/bounced .
+.It Fl R
+Only list messages marked as replied-to.
+.It Fl S
+Only list messages marked as seen.
+.It Fl T
+Only list messages marked as trashed.
+.It Fl X Ar str
+Only list messages marked with the characters in
+.Ar str .
+.It Fl d
+Don't list messages marked as draft.
+.It Fl f
+Don't list messages marked as flagged.
+.It Fl p
+Don't list messages marked as passed
+.Pq resent/forwarded/bounced .
+.It Fl r
+Don't list messages marked as replied-to.
+.It Fl s
+Don't list messages marked as seen.
+.It Fl t
+Don't list messages marked as trashed.
+.It Fl x Ar str
+Don't list messages marked with the characters in
+.Ar str .
+.Pq Remember to use uppercase characters.
+.It Fl C
+Only list messages in
+.Pa cur .
+.It Fl N
+Only list messages in
+.Pa new .
+.It Fl c
+Don't list messages in
+.Pa cur .
+.It Fl n
+Don't list messages in
+.Pa new .
+.It Fl i
+Don't print filenames.
+Instead, print a one-line summary for each folder,
+showing the number of unseen, flagged and total messages,
+along with the folder name.
+If any of the message selection flags are used,
+the number of matching messages is printed as well.
+If two or more folders are specified,
+a total for all folders will also be printed at the end.
+.El
+.Pp
+Multiple options are regarded as a conjunction.
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr find 1
+.Pp
+.Lk https://cr.yp.to/proto/maildir.html "Using maildir format"
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

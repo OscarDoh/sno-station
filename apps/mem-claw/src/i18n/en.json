@@ -1,0 +1,8 @@
+{
+  "deletedMemories": "Deleted %d memories.",
+  "noMatchingMemories": "No matching memories found.",
+  "noMemoriesInScope": "No memories found in scope %s.",
+  "killSwitchStatus": "Kill switch: %s",
+  "exportedTo": "Exported memories to %s",
+  "importComplete": "Import complete. Processed: %d, Imported: %d, Skipped: %d, Errors: %d"
+}

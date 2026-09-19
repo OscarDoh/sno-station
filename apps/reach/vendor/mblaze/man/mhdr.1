@@ -1,0 +1,104 @@
+.Dd August 17, 2016
+.Dt MHDR 1
+.Os
+.Sh NAME
+.Nm mhdr
+.Nd print message headers
+.Sh SYNOPSIS
+.Nm
+.Op Fl h Ar hdrs Op Fl p Ar parameter
+.Op Fl d
+.Op Fl H
+.Op Fl M
+.Op Fl A | Fl D
+.Op Ar msgs\ ...
+.Sh DESCRIPTION
+.Nm
+prints the headers of the specified
+.Ar msgs .
+.Po
+See
+.Xr mmsg 7
+for the message argument syntax.
+.Pc
+.Pp
+If no
+.Ar msgs
+are specified,
+.Nm
+will default to the current message.
+.Pp
+If no
+.Ar hdrs
+are specified,
+.Nm
+will print all headers.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl h Ar hdrs
+Only print the values of headers in the colon-separated list
+.Ar hdrs .
+.It Fl p Ar parameter
+Extract a particular RFC 2045
+.Ar parameter
+from the specified
+.Ar hdrs .
+.It Fl d
+Decode the
+.Ar hdrs
+according to RFC 2047.
+.It Fl H
+Prefix output lines with the filename of the message,
+followed by a tab.
+.It Fl M
+Search for all occurrences of the
+.Ar hdrs
+.Pq default: only the first .
+.It Fl A
+Scan for RFC 5322 addresses in the
+.Ar hdrs
+and print them, one per line.
+.It Fl D
+Assume header contains RFC 5322 date and print as Unix timestamp.
+.El
+.Sh EXIT STATUS
+The
+.Nm
+utility exits 0 on success,
+1 if no header was printed,
+and >1 if an error occurs.
+.Sh SEE ALSO
+.Xr mmsg 7
+.Rs
+.%A N. Freed
+.%A N. Borenstein
+.%R RFC 2045
+.%D November 1996
+.%T Multipurpose Internet Mail Extensions (MIME) Part One: Format of Internet Message Bodies
+.Re
+.Rs
+.%A N. Freed
+.%A N. Borenstein
+.%D November 1996
+.%R RFC 2047
+.%T MIME (Multipurpose Internet Mail Extensions) Part Three: Message Header Extensions for Non-ASCII Text
+.Re
+.Rs
+.%A P. Resnick (ed.)
+.%D October 2008
+.%R RFC 5322
+.%T Internet Message Format
+.Re
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

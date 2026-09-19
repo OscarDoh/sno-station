@@ -1,0 +1,11 @@
+#!/bin/sh
+# mmkdir DIRS... - create new maildirs
+
+umask 077
+
+r=0
+for dir; do
+	mkdir -p "$dir"/tmp "$dir"/new "$dir"/cur || r=1
+done
+
+exit $r

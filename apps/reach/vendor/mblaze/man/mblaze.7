@@ -1,0 +1,266 @@
+.Dd January 18, 2020
+.Dt MBLAZE 7
+.Os
+.Sh NAME
+.Nm mblaze
+.Nd introduction to the mblaze message system
+.Sh DESCRIPTION
+The
+.Nm
+message system is a set of Unix utilities for processing and
+interacting with mail messages which are stored in maildir folders.
+.Pp
+Its design is roughly inspired by MH, the RAND Message Handling
+System, but it is a complete implementation from scratch.
+.Pp
+.Nm
+consists of these Unix utilities that each do one job:
+.Pp
+.Bl -tag -width 11n -compact
+.It Xr maddr 1
+extract mail addresses from messages
+.It Xr magrep 1
+search messages matching a pattern
+.It Xr mbnc 1
+bounce messages
+.It Xr mcom 1
+compose and send messages
+.It Xr mdeliver 1
+deliver messages or import mbox file
+.It Xr mdirs 1
+list maildir folders, recursively
+.It Xr mexport 1
+export messages as mbox file
+.It Xr mflag 1
+manipulate maildir message flags
+.It Xr mflow 1
+reflow format=flowed plain text messages
+.It Xr mfwd 1
+forward messages
+.It Xr mgenmid 1
+generate a Message-ID
+.It Xr mhdr 1
+print message headers
+.It Xr minc 1
+incorporate new messages
+.It Xr mless 1
+conveniently read messages in
+.Xr less 1
+.It Xr mlist 1
+list and filter messages
+.It Xr mmime 1
+create MIME messages
+.It Xr mmkdir 1
+create new maildir folders
+.It Xr mpick 1
+advanced message filter
+.It Xr mrefile 1
+move or copy messages between maildir folders
+.It Xr mrep 1
+reply to messages
+.It Xr mscan 1
+generate one-line message summaries
+.It Xr msed 1
+manipulate message headers
+.It Xr mseq 1
+manipulate message sequences
+.It Xr mshow 1
+render messages and extract MIME parts
+.It Xr msort 1
+sort messages
+.It Xr mthread 1
+arrange messages into discussions
+.El
+.Pp
+.Nm
+is a classic command line MUA and has no features
+for receiving or transferring messages;
+you can operate on messages in a local maildir spool,
+or fetch your messages using
+.Xr fdm 1 ,
+.Xr getmail 1 ,
+.Xr offlineimap 1 ,
+or similar utilities,
+and send it using
+.Xr dma 8 ,
+.Xr msmtp 1 ,
+.Xr sendmail 8 ,
+as provided by
+OpenSMTPD,
+Postfix,
+or similar.
+.Pp
+.Nm
+operates directly on maildir folders and doesn't
+use its own caches or databases.
+There is no setup needed for many uses.
+All utilities have been written with performance in mind.
+Enumeration of all messages in a maildir is avoided unless necessary,
+and then optimized to limit syscalls.
+Parsing message metadata is optimized to limit I/O requests.
+Initial operations on a large maildir may feel slow, but as soon as they
+are in the file system cache, everything is blazingly fast.
+The utilities are written to be memory efficient
+.Pq i.e. not wasteful ,
+but whole messages are assumed to fit into RAM easily
+.Pq one at a time .
+.Pp
+.Nm
+has been written from scratch and is now well tested,
+but it is not 100% RFC-conforming
+.Pq which is neither worth it, nor desirable .
+There may be issues with very old, nonconforming, messages.
+.Pp
+.Nm
+is written in portable C, using only POSIX functions
+.Pq apart from a tiny Linux-only optimization ,
+and has no external dependencies.
+It supports MIME and more than 7-bit messages
+.Po
+everything the host
+.Xr iconv 3
+can decode
+.Pc .
+It assumes you work in a UTF-8 environment.
+.Nm
+works well with other Unix utilities such as
+.Xr mairix 1 ,
+.Xr mu 1 ,
+or
+.Xr offlineimap 1 .
+.Sh EXAMPLES
+.Nm
+utilities are designed to be composed together in a pipe.
+They are suitable for interactive use and for scripting,
+and integrate well into a Unix workflow.
+.Pp
+For example, you could decide you want to look at all unseen messages in your
+INBOX, oldest first.
+.Dl mlist -s ~/Maildir/INBOX | msort -d | mscan
+.Pp
+To operate on a set of messages in multiple steps,
+you can save it as a sequence,
+e.g. add a call to
+.Ql mseq -S
+to the above command:
+.Dl mlist -s ~/Maildir/INBOX | msort -d | mseq -S | mscan
+.Pp
+Now mscan will show message numbers and you could look at the first
+five messages at once, for example:
+.Dl mshow 1:5
+.Pp
+Likewise, you could decide to incorporate
+.Po
+by moving from
+.Pa new
+to
+.Pa cur
+.Pc
+all new messages in all folders,
+thread it and look at it interactively:
+.Dl mdirs ~/Maildir | xargs minc | mthread | mless
+.Pp
+Or you could list the attachments of the 20 largest messages in your INBOX:
+.Dl mlist ~/Maildir/INBOX | msort -S | tail -20 | mshow -t
+.Pp
+Or delete messages beyond a certain age:
+.Dl mlist ~/Maildir/INBOX | mpick -t 'mtime < \&"-365d\&"' | xargs rm
+.Pp
+Or apply the patches from the current message:
+.Dl mshow -O . '*.diff' | patch
+.Pp
+As usual with pipes, the sky is the limit.
+.Sh CONCEPTS
+.Nm
+deals with messages
+.Pq which are files ,
+folders
+.Pq which are maildir folders ,
+sequences
+.Po
+which are newline-separated lists of messages, possibly saved on disk in
+.Pa ${MBLAZE:-$HOME/.mblaze}/seq
+.Pc ,
+and the current message
+.Po
+kept as a symlink in
+.Pa ${MBLAZE:-$HOME/.mblaze}/cur
+.Pc .
+.Pp
+Messages in the saved sequence can be referred to using special
+syntax as explained in
+.Xr mmsg 7 .
+.Pp
+Many utilities have a default behavior when used interactively from a terminal
+.Pq e.g. operate on the current message or the current sequence .
+For scripting, you must make these arguments explicit.
+.Pp
+For configuration, see
+.Xr mblaze-profile 5 .
+.Sh COLORS
+.Nm
+color output of
+.Xr mshow 1
+and
+.Xr mscan 1
+can be configured via environment variables starting with MCOLOR_. For example:
+.Dl export MCOLOR_FROM=226
+.Pp
+will turn the color of From= header line to bright yellow.
+.Pp
+All programmable colors:
+.Bl -tag -width 15n -compact
+.It Ev MCOLOR_CUR
+current message in mless
+.It Ev MCOLOR_DIFF_D
+diff deleted lines
+.It Ev MCOLOR_DIFF_I
+diff inserted lines
+.It Ev MCOLOR_DIFF_R
+diff line range
+.It Ev MCOLOR_FOOTER
+footer
+.It Ev MCOLOR_FROM
+from header line
+.It Ev MCOLOR_HEADER
+rest of header
+.It Ev MCOLOR_QUOTE
+quote
+.It Ev MCOLOR_QQUOTE
+double-nested quote
+.It Ev MCOLOR_QQQUOTE
+triple-nested quote
+.It Ev MCOLOR_SEP
+message separator
+.It Ev MCOLOR_SIG
+message signature
+.El
+.Sh SEE ALSO
+.Xr mailx 1 ,
+.Xr mblaze-profile 5 ,
+.Xr nmh 7
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Pp
+There is a mailing list available at
+.Mt mblaze@googlegroups.com
+.Po
+to subscribe, send a message to
+.Mt mblaze+subscribe@googlegroups.com
+.Pc ;
+archives are available at
+.Lk https://inbox.vuxu.org/mblaze/ .
+There also is an IRC channel
+.Li #vuxu
+on irc.libera.chat.
+Please report security-related bugs directly to the author.
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

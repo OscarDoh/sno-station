@@ -1,0 +1,59 @@
+.Dd December 25, 2018
+.Dt MGENMID 1
+.Os
+.Sh NAME
+.Nm mgenmid
+.Nd generate a Message-ID
+.Sh SYNOPSIS
+.Nm
+.Sh DESCRIPTION
+.Nm
+generates and prints a unique Message-ID.
+The Message-ID consists of an encrypted timestamp,
+a random value,
+and a fully qualified domain name.
+.Pp
+The fully qualified domain name is arrived at by:
+.Bl -enum
+.It
+Using
+.Sq Li FQDN\&:
+from
+.Pa "${MBLAZE:-$HOME/.mblaze}/profile"
+.Pq if set .
+.It
+Resolving the current hostname.
+.It
+Using the domain component of the mail address in
+.Sq Li Local\&-Mailbox\&:
+from
+.Pa "${MBLAZE:-$HOME/.mblaze}/profile"
+.Pq if set .
+.El
+.Pp
+If these steps don't result in a fully qualified domain name,
+.Nm
+fails.
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr mblaze-profile 5
+.Rs
+.%A M. Curtin
+.%A J. Zawinski
+.%D July 1998
+.%R draft-ietf-usefor-message-id-01.txt
+.%T Recommendations for generating Message IDs
+.Re
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/

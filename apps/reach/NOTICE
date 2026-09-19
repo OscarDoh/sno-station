@@ -1,0 +1,48 @@
+Third-party components bundled or built by this repository.
+
+================================================================================
+mblaze — vendor/mblaze (source snapshot from tag v1.4)
+Upstream: https://github.com/leahneukirchen/mblaze
+Upstream commit: 7b039011ef688e030ffe9eebe831d1ac8619072b
+================================================================================
+
+mblaze is in the public domain. To the extent possible under law, Leah
+Neukirchen <leah@vuxu.org> has waived all copyright and related or neighboring
+rights to this work.
+http://creativecommons.org/publicdomain/zero/1.0/
+
+Two files inside mblaze carry a different licence and their attribution is
+preserved here because it is the only obligation attached to this dependency:
+
+  mystrverscmp.c, mymemmem  — MIT licensed, written by Rich Felker.
+
+mpick.c is largely based on code by Leah Neukirchen and was contributed by
+Duncan Overbruck <mail@duncano.de>.
+
+Local patch against the v1.4 snapshot: vendor/mblaze/mlist.c, non-Linux listdir,
+adds perror("opendir") before the existing failure return so an unreadable
+mailbox reports an I/O failure instead of silently appearing empty.
+
+The release contains the built tools under vendor/bin. The following notice is
+copied from mystrverscmp.c and mymemmem.c and also applies to their compiled code:
+
+Copyright © 2005-2014 Rich Felker, et al.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

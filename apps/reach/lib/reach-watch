@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Read existing channel output only; never arm a capture pipe or acquire a lock.
+set -Eeuo pipefail
+record="${1:?record required}"
+channel="${2:?channel required}"
+limit="${3:?timeout required}"
+idle="${4-}"
+started=$SECONDS
+last_new=$SECONDS
+if [[ "$channel" == acp ]]; then
+    handle="$(jq -er .handle "$record")"
+    [[ "$handle" =~ ^acp-([a-zA-Z0-9][a-zA-Z0-9_-]*):(/[^:[:cntrl:]]*):([^:[:space:]]+)$ ]] || exit 5
+    agent="${BASH_REMATCH[1]}" cwd="${BASH_REMATCH[2]}" name="${BASH_REMATCH[3]}"
+    jq -e --arg name "$name" '.identity == {kind:"acp-session",value:$name}' "$record" >/dev/null || exit 5
+    metadata="$(timeout -k 1 5 acpx --cwd "$cwd" --format json "$agent" sessions show "$name")" || exit 5
+    stream="$(jq -er --arg name "$name" --arg cwd "$cwd" 'select(.name == $name and .cwd == $cwd and .closed == false) | .eventLog.active_path | strings | select(startswith("/"))' <<<"$metadata")" || exit 5
+    [[ -f "$stream" && -r "$stream" && ! -L "$stream" ]] || { printf 'reach: watch stream unavailable\n' >&2; exit 5; }
+    offset="$(stat -c %s "$stream")"
+    inode="$(stat -c '%d:%i' "$stream")"
+    while :; do
+        size="$(stat -c %s "$stream")" || exit 5
+        [[ "$(stat -c '%d:%i' "$stream")" == "$inode" && "$size" -ge "$offset" ]] || { printf 'reach: watch stream rotated\n' >&2; exit 5; }
+        if ((size > offset)); then
+            dd if="$stream" bs=64K iflag=skip_bytes,count_bytes skip="$offset" count="$((size-offset))" status=none
+            offset="$size"
+            last_new=$SECONDS
+        fi
+        ((SECONDS - started < limit)) || break
+        [[ -z "$idle" ]] || ((SECONDS - last_new < idle)) || break
+        sleep 0.2
+    done
+elif [[ "$channel" == tmux ]]; then
+    pane="$(jq -er 'select(.identity.kind == "tmux-pane") | .identity.value' "$record")" || exit 5
+    previous="$(timeout 5 tmux capture-pane -p -t "$pane" -S -)" || exit 5
+    while :; do
+        screen="$(timeout 5 tmux capture-pane -p -t "$pane" -S -)" || exit 5
+        if [[ "$screen" != "$previous" ]]; then
+            if [[ "$screen" == "$previous"* ]]; then printf '%s\n' "${screen#"$previous"}"; else printf '%s\n' "$screen"; fi
+            previous="$screen"
+            last_new=$SECONDS
+        fi
+        ((SECONDS - started < limit)) || break
+        [[ -z "$idle" ]] || ((SECONDS - last_new < idle)) || break
+        sleep 0.2
+    done
+else
+    printf 'reach: channel %s has no readable output stream\n' "$channel" >&2
+    exit 5
+fi

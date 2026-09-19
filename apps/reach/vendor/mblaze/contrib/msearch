@@ -1,0 +1,45 @@
+#!/bin/sh
+
+MBLAZE=${MBLAZE:-$HOME/.mblaze}
+engine=$(mhdr -h search-engine "$MBLAZE/profile")
+
+while getopts nmx opt; do
+    case $opt in
+	n)
+	    engine=notmuch
+	    ;;
+	m)
+	    engine=mu
+	    ;;
+	x)
+	    engine=mairix
+	    ;;
+	'?')
+	    printf "Usage: %s: [-n | -m | -x] query\n" "$0" 1>&2
+	    exit 1
+	    ;;
+    esac
+done
+shift $(($OPTIND - 1))
+
+[ -z "$engine" ] && engine=notmuch
+
+case $engine in
+    notmuch)
+	exec notmuch search --output=files "$@"
+	;;
+    mu)
+	exec mu find --fields l "$@"
+	;;
+    mairix)
+	if [ "$#" -eq 0 ]; then
+	   printf "Usage: %s -x query\n" "$0" 1>&2
+	   exit 1
+	fi
+        exec mairix -r "$@"
+	;;
+    *)
+	echo "Unsupported search engine: $engine"
+	exit 1
+	;;
+esac

@@ -1,0 +1,172 @@
+.Dd April 21, 2021
+.Dt MCOM 1
+.Os
+.Sh NAME
+.Nm mcom ,
+.Nm mfwd ,
+.Nm mbnc ,
+.Nm mrep
+.Nd compose, forward, bounce, reply, send messages
+.Sh SYNOPSIS
+.Nm mcom
+.Op Fl Ar header Ar values\ ...
+.Op Ar recipients\ ...
+.Nm mcom
+.Fl r Op draft
+.Nm mrep
+.Op Fl noquote
+.Op Fl Ar header Ar values\ ... Fl -
+.Op Ar msg
+.Nm mfwd
+.Op Fl r
+.Op Fl Ar header Ar values\ ... Fl -
+.Op Ar msgs\ ...
+.Nm mbnc
+.Op Fl Ar header Ar values\ ... Fl -
+.Op Ar msg
+.Sh DESCRIPTION
+.Nm mcom
+creates a new draft message and opens it in an editor.
+After editing, a loop is started where the user can send,
+re-edit or cancel the message.
+Use
+.Sq Nm Fl r
+to resume the editing of a draft;
+by default, the last modified draft will be edited.
+.Pp
+.Nm mrep
+creates the draft such that the message will be a reply to
+.Ar msg
+.Po
+or the current message
+.Pc .
+Unless
+.Fl noquote
+is passed, it will contain the original mail quoted.
+.Pp
+.Nm mfwd
+creates the draft with a subject and body appropriate
+for forwarding the message.
+By default, messages are forwarded verbatim as MIME
+.Sq Li message/rfc822
+attachments.
+Use
+.Fl r
+to forward as
+.Xr mshow 1
+rendered plain text, using RFC 934 message encapsulation.
+.Pp
+.Nm mbnc
+creates the draft from the original
+.Ar msg
+.Po
+or the current message
+.Pc
+including headers,
+and adds a Resent-To header, to which the message will
+be bounced directly.
+.Po
+See
+.Xr mmsg 7
+for the message argument syntax.
+.Pc
+.Pp
+All commands can take optional
+.Ar header
+flags
+.Pq which consist of two or more characters
+to prefill header fields,
+e.g. you can use
+.Sq Nm mcom Fl to No merrilyn Fl cc No elea becci Fl subject No 'Party invite'
+to create a draft with the To, Cc and Subject fields already set.
+The flag
+.Fl body Ar file
+can be used to prepopulate the draft for
+.Nm mcom
+and
+.Nm mrep
+with the contents of
+.Ar file .
+.Pp
+Note that these flags apply to
+.Em all
+arguments after them
+.Po e.g.
+.Sq mcom Fl attach No *.c
+works
+.Pc ,
+so you
+need to use
+.Sq Fl -
+when you want to use this feature together with
+.Nm mrep ,
+.Nm mfwd ,
+or
+.Nm mbnc .
+.Pp
+If the flag
+.Fl send
+is passed,
+the message will be sent directly using the data on
+the command line, and no editor or edit loop will be run.
+.Sh MENU COMMANDS
+.Bl -tag -width 2n
+.It Ic s
+Send the message.
+The MIME version will be used when one has been created.
+.It Ic c
+Cancel sending and quit, after displaying
+the filename of the saved draft.
+.It Ic m
+Run
+.Xr mmime 1
+on the draft, and print the result of
+.Ic mshow -t .
+.It Ic e
+Re-edit the draft.
+.It Ic d
+Delete the draft and quit.
+.It Ic p
+Preview the draft, using
+.Xr mshow 1 .
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev EDITOR , Ev VISUAL
+Editor used to compose messages.
+(Default:
+.Xr vi 1 )
+.It Ev MBLAZE
+Directory containing mblaze configuration files.
+(Default:
+.Pa $HOME/.mblaze )
+.El
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa snd.*
+Draft messages, kept in current directory.
+This can be configured in
+.Xr mblaze-profile 5 .
+.It Pa ${MBLAZE:-$HOME/.mblaze}/headers
+Default headers for each message.
+.It Pa ${MBLAZE:-$HOME/.mblaze}/signature No or Pa ~/.signature
+Default signature.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr mmime 1 ,
+.Xr mblaze-profile 5 ,
+.Xr mmsg 7
+.Sh AUTHORS
+.An Leah Neukirchen Aq Mt leah@vuxu.org
+.Sh LICENSE
+.Nm
+is in the public domain.
+.Pp
+To the extent possible under law,
+the creator of this work
+has waived all copyright and related or
+neighboring rights to this work.
+.Pp
+.Lk http://creativecommons.org/publicdomain/zero/1.0/
