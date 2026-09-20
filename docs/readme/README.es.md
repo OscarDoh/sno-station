@@ -112,18 +112,18 @@ es el rápido. Cambia por mes y por tarea. El punto es que difieren.
 
 ## What runs today
 
-*Última actualización 2026-09-19.*
+*Última actualización 2026-09-20.*
 
 | Pieza | Estado |
 |---|---|
 | `packages/chunking` | En este repositorio, probado, publicado en npm |
-| Paquetes compartidos (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | Llega 2026-09-19 |
-| Memoria compartida entre Claude Code, Codex y OpenClaw | Llega 2026-09-20 |
-| Sno Reach — agentes hablando entre sí, sin daemon | Llega 2026-09-20 |
+| Paquetes compartidos (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | En este repositorio |
+| Memoria compartida entre Claude Code, Codex y OpenClaw | Motor y las tres pieles en este repositorio; prueba en máquina limpia pendiente |
+| Sno Reach — agentes hablando entre sí, sin daemon | Código fuente en este repositorio; archivos de lanzamiento pendientes |
 | El bucle RSI (habilidad) | Esta semana |
 | Instalación de un solo comando (`sno assemble`, o di "Sno onboarding" dentro de tu agente) | Aún no reclamado |
 
-Las filas aparecen aquí solo cuando están probadas en una máquina limpia.
+Una fila dice "probada" solo una vez que se ha ejecutado en una máquina limpia; hasta entonces dice lo que hay aquí.
 
 ## Memory that forgets on purpose
 

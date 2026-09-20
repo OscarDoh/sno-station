@@ -112,18 +112,18 @@ Codex に Claude Code の作業をレビューさせてきました。空振り�
 
 ## What runs today
 
-*最終更新 2026-09-19。*
+*最終更新 2026-09-20。*
 
 | Piece | Status |
 |---|---|
 | `packages/chunking` | In this repository, tested, published on npm |
-| Shared packages (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | Landing 2026-09-19 |
-| Shared memory across Claude Code, Codex and OpenClaw | Landing 2026-09-20 |
-| Sno Reach — agents talking to each other, no daemon | Landing 2026-09-20 |
+| Shared packages (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | このリポジトリ内にあります |
+| Shared memory across Claude Code, Codex and OpenClaw | エンジンと3つのスキンすべてがこのリポジトリ内にあります。クリーンなマシンでの証明は未了です |
+| Sno Reach — agents talking to each other, no daemon | ソースはこのリポジトリ内にあります。リリースアーカイブは未了です |
 | The RSI loop (skill) | This week |
 | One-command install (`sno assemble`, or say "Sno onboarding" inside your agent) | Not yet claimed |
 
-この一覧に行が現れるのは、クリーンなマシンで動作が実証されたものだけです。
+ある行が「実証済み」と言えるのは、クリーンなマシンで動作した後だけです。それまでは、ここに何があるかを述べます。
 
 ## Memory that forgets on purpose
 

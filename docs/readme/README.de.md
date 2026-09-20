@@ -116,18 +116,18 @@ Punkt ist, dass sie sich unterscheiden.
 
 ## What runs today
 
-*Zuletzt aktualisiert am 2026-09-19.*
+*Zuletzt aktualisiert am 2026-09-20.*
 
 | Teil | Status |
 |---|---|
 | `packages/chunking` | In diesem Repository, getestet, auf npm veröffentlicht |
-| Gemeinsame Pakete (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | Landet am 2026-09-19 |
-| Gemeinsames Gedächtnis über Claude Code, Codex und OpenClaw hinweg | Landet am 2026-09-20 |
-| Sno Reach — Agenten sprechen miteinander, kein Daemon | Landet am 2026-09-20 |
+| Gemeinsame Pakete (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | In diesem Repository |
+| Gemeinsames Gedächtnis über Claude Code, Codex und OpenClaw hinweg | Engine und alle drei Skins in diesem Repository; Beweis auf sauberer Maschine steht noch aus |
+| Sno Reach — Agenten sprechen miteinander, kein Daemon | Quelle in diesem Repository; Release-Archive stehen noch aus |
 | Die RSI-Schleife (Skill) | Diese Woche |
 | Ein-Befehl-Installation (`sno assemble`, oder sagen Sie "Sno onboarding" in Ihrem Agenten) | Noch nicht behauptet |
 
-Zeilen erscheinen hier erst, wenn sie auf einer sauberen Maschine bewiesen sind.
+Eine Zeile sagt „bewiesen" erst, wenn sie auf einer sauberen Maschine gelaufen ist; bis dahin sagt sie, was vorhanden ist.
 
 ## Memory that forgets on purpose
 

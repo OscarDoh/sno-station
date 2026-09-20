@@ -104,18 +104,18 @@ which one is the fast one. It flips by month and by job. The point is that they 
 
 ## What runs today
 
-*Last updated 2026-09-19.*
+*Last updated 2026-09-20.*
 
 | Piece | Status |
 |---|---|
 | `packages/chunking` | In this repository, tested, published on npm |
-| Shared packages (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | Landing 2026-09-19 |
-| Shared memory across Claude Code, Codex and OpenClaw | Landing 2026-09-20 |
-| Sno Reach — agents talking to each other, no daemon | Landing 2026-09-20 |
+| Shared packages (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | In this repository |
+| Shared memory across Claude Code, Codex and OpenClaw | Engine and all three skins in this repository; clean-machine proof pending |
+| Sno Reach — agents talking to each other, no daemon | Source in this repository; release archives pending |
 | The RSI loop (skill) | This week |
 | One-command install (`sno assemble`, or say "Sno onboarding" inside your agent) | Not yet claimed |
 
-Rows appear here only when they are proven on a clean machine.
+A row says "proven" only once it has run on a clean machine; until then it says what is here.
 
 ## Memory that forgets on purpose
 

@@ -102,18 +102,18 @@ harness 所需的 hook。不需要記住任何套件名稱。
 
 ## What runs today
 
-*最後更新於 2026-09-19。*
+*最後更新於 2026-09-20。*
 
 | 項目 | 狀態 |
 |---|---|
 | `packages/chunking` | 已在此儲存庫中，經過測試，並發布至 npm |
-| 共用套件（`common-core`、`utils`、`embedder`、`sno-observe`、`sno-station-core-crypto`、`content-sanitizer`） | 2026-09-19 上線 |
-| 跨 Claude Code、Codex 與 OpenClaw 的共用記憶 | 2026-09-20 上線 |
-| Sno Reach——代理人之間互相溝通，不需要 daemon | 2026-09-20 上線 |
+| 共用套件（`common-core`、`utils`、`embedder`、`sno-observe`、`sno-station-core-crypto`、`content-sanitizer`） | 已在此儲存庫中 |
+| 跨 Claude Code、Codex 與 OpenClaw 的共用記憶 | 引擎與三種介面皆已在此儲存庫中；尚待乾淨機器驗證 |
+| Sno Reach——代理人之間互相溝通，不需要 daemon | 原始碼已在此儲存庫中；發布封存檔尚待推出 |
 | RSI loop（技能） | 本週 |
 | 單一指令安裝（執行 `sno assemble`，或在您的代理人裡輸入 "Sno onboarding"） | 尚未宣稱完成 |
 
-只有在乾淨的機器上驗證過之後，才會把該項目列在這裡。
+只有在乾淨的機器上運作過之後，該項目才會標示為「已證實」；在那之前，這裡只會說明目前已具備的內容。
 
 ## Memory that forgets on purpose
 

@@ -109,18 +109,18 @@ et lequel est le rapide. Cela change selon le mois et selon la tâche. L'importa
 
 ## Ce qui fonctionne aujourd'hui
 
-*Dernière mise à jour le 2026-09-19.*
+*Dernière mise à jour le 2026-09-20.*
 
 | Élément | Statut |
 |---|---|
 | `packages/chunking` | Dans ce dépôt, testé, publié sur npm |
-| Paquets partagés (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | Arrivée le 2026-09-19 |
-| Mémoire partagée entre Claude Code, Codex et OpenClaw | Arrivée le 2026-09-20 |
-| Sno Reach — les agents qui se parlent, sans démon | Arrivée le 2026-09-20 |
+| Paquets partagés (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | Dans ce dépôt |
+| Mémoire partagée entre Claude Code, Codex et OpenClaw | Moteur et les trois habillages dans ce dépôt ; preuve sur machine vierge en attente |
+| Sno Reach — les agents qui se parlent, sans démon | Source dans ce dépôt ; archives de version en attente |
 | La boucle RSI (compétence) | Cette semaine |
 | Installation en une commande (`sno assemble`, ou dites « Sno onboarding » dans votre agent) | Pas encore revendiquée |
 
-Les lignes n'apparaissent ici que lorsqu'elles sont prouvées sur une machine vierge.
+Une ligne indique « prouvé » seulement une fois qu'elle a tourné sur une machine vierge ; d'ici là, elle indique ce qui est présent.
 
 ## Une mémoire qui oublie exprès
 

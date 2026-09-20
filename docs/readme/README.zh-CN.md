@@ -99,18 +99,18 @@ agent。有三件事会改变：
 
 ## What runs today
 
-*最后更新于 2026-09-19。*
+*最后更新于 2026-09-20。*
 
 | 部分 | 状态 |
 |---|---|
 | `packages/chunking` | 在本仓库中，已测试，已发布到 npm |
-| 共享包（`common-core`、`utils`、`embedder`、`sno-observe`、`sno-station-core-crypto`、`content-sanitizer`） | 2026-09-19 上线 |
-| Claude Code、Codex 与 OpenClaw 之间的共享记忆 | 2026-09-20 上线 |
-| Sno Reach —— agent 之间互相通信，无需守护进程 | 2026-09-20 上线 |
+| 共享包（`common-core`、`utils`、`embedder`、`sno-observe`、`sno-station-core-crypto`、`content-sanitizer`） | 在本仓库中 |
+| Claude Code、Codex 与 OpenClaw 之间的共享记忆 | 引擎与全部三种皮肤均已在本仓库中；干净机器验证待完成 |
+| Sno Reach —— agent 之间互相通信，无需守护进程 | 源码在本仓库中；发布归档待完成 |
 | RSI 循环（技能） | 本周 |
 | 一条命令完成安装（`sno assemble`，或在你的 agent 里说 "Sno onboarding"） | 尚未声明 |
 
-只有在一台干净的机器上得到验证之后，这些行才会出现在这里。
+只有在一台干净的机器上运行过之后，一行才会写“proven”；在那之前，它写的是这里已经有什么。
 
 ## Memory that forgets on purpose
 

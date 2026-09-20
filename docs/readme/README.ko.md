@@ -68,18 +68,18 @@ Sno onboarding
 
 ## 오늘 작동하는 것
 
-*마지막 업데이트: 2026-09-19.*
+*마지막 업데이트: 2026-09-20.*
 
 | 구성 요소 | 상태 |
 |---|---|
 | `packages/chunking` | 이 저장소에 있으며, 테스트를 거쳤고, npm에 게시됨 |
-| 공유 패키지 (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | 2026-09-19 도입 예정 |
-| Claude Code, Codex, OpenClaw 간 공유 메모리 | 2026-09-20 도입 예정 |
-| Sno Reach — 데몬 없이 에이전트끼리 대화하기 | 2026-09-20 도입 예정 |
+| 공유 패키지 (`common-core`, `utils`, `embedder`, `sno-observe`, `sno-station-core-crypto`, `content-sanitizer`) | 이 저장소에 있음 |
+| Claude Code, Codex, OpenClaw 간 공유 메모리 | 엔진과 세 가지 스킨 모두 이 저장소에 있음; 클린 머신 검증 대기 중 |
+| Sno Reach — 데몬 없이 에이전트끼리 대화하기 | 소스는 이 저장소에 있음; 릴리스 아카이브 대기 중 |
 | RSI 루프 (스킬) | 이번 주 |
 | 원커맨드 설치 (`sno assemble`, 또는 에이전트 안에서 "Sno onboarding"이라고 말하기) | 아직 공개되지 않음 |
 
-이 표의 행은 깨끗한 컴퓨터에서 검증된 경우에만 나타납니다.
+행은 깨끗한 컴퓨터에서 실행된 경우에만 "검증됨"이라고 표시됩니다; 그때까지는 지금 무엇이 있는지를 말합니다.
 
 ## 일부러 잊어버리는 메모리
 
