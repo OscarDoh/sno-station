@@ -1,0 +1,2 @@
+[acpx] session <redacted> · <repo> · agent connected
+REACH-RECEIPT-1789720777107623356-3095432-25953

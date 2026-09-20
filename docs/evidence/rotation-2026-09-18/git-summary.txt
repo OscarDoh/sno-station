@@ -1,0 +1,32 @@
+2e2653f91 10:00 test(mem-claude): repeat QCG-1 and QCG-2 on the macOS CLI
+16f04d41e 09:59 docs(mem-claude): repair task evidence references for the evidence gate
+40417c014 09:51 test(mem-claude): repair test-review findings and rerun STP-2
+92348bf46 08:34 docs(mem-claude): record import acceptance proofs
+6fe1d06db 08:34 test(mem-claude): verify real repository memory import
+d21d3a5d6 08:26 docs(mem-claude): record shared-store acceptance proof
+fe075d17c 08:26 test(mem-claude): prove shared-store bidirectional reads
+855752f65 08:22 docs(mem-claude): verify shared-store implementation task
+ffa357b7b 07:58 docs(mem-claude): validate archive-ready specification format
+25bffa32c 07:55 test(mem-claude): record explicit command acceptance
+faa1100c6 07:55 test(mem-claude): prove model CLI permissions and memory corrections
+d7ca7000b 07:31 test(mem-claude): record injection and compaction acceptance
+c100a61b0 07:31 test(mem-claude): prove scoped injection dedup and real compaction
+f639033f8 07:28 chore(mem-claude): register client workspace in lockfile
+ecdd22cc2 07:26 fix(mem-claude): isolate model child from ancestor git repository
+ed2871be0 07:21 feat(mem-claude): record repository memory importer adaptation
+f3f5b03cf 07:20 feat(mem-claude): document existing memory command surface
+2a1660495 07:18 feat(mem-claude): bound worker capture lifetime and process exit
+6579b632a 07:18 feat(mem-claude): record completed injection implementation task
+2178797ca 07:17 test(mem-claude): record completed installation acceptance
+66fb3c414 07:17 test(mem-claude): prove installation and real hook failure paths
+dfb19b6ff 07:10 fix(mem-claude): preserve foreign settings key order during install
+8025589b7 07:08 feat(mem-claude): adapt existing client foundation to Claude hooks
+ebd178378 07:04 docs(mem-claude): project and review execution tasks
+6b5fd033d 06:57 chore: regenerate the log site catalogs after the review fixes
+644653c98 23:55 Merge pull request #234 from sno-ai/feat/two-lane-extraction
+17003e38a 06:55 fix(sno-station-mem): reuse a running REM job that already holds the requested operations
+eac8ea8fb 23:54 Merge pull request #230 from sno-ai/feat/two-lane-extraction
+799833791 06:53 fix(sno-station-mem, mem-claw): close eight review findings across extraction, jobs, config and quota
+45ee9892c 06:46 fix(mem-codex, mem-claw): stop the installer destroying other tools' commands, and stop a failed start reporting success
+a94c360ed 06:34 fix(mem-claw): stop narrowing a full-corpus search to memory only
+e763dfc58 06:30 fix(mem-claw): keep the gateway administrator's scopes through the tool context parse

@@ -110,6 +110,30 @@ harness nunca es suficiente.
 Llamamos Duo a la pareja: el escuadrón más pequeño. Nunca decimos cuál es el cuidadoso y cuál
 es el rápido. Cambia por mes y por tarea. El punto es que difieren.
 
+## "Me fui a dormir. Cambió de turno."
+
+*Cómo se ve esto en nuestra propia máquina, 2026-09-18.*
+
+![La vigilancia de cuota bajando hasta el umbral cada cinco minutos, y el relevo disparándose al 2 %](../evidence/rotation-quota-watch-2026-09-18.png)
+
+Uno de nuestros agentes iba por la tarea veintiuno de una construcción de veintisiete tareas
+cuando su cuota semanal llegó al 2 %. No se detuvo ahí a esperar morir. Escribió un informe de
+relevo: qué estaba hecho, qué estaba a medias, el commit exacto desde el que continuar. Luego
+despertó a un agente del otro harness y no le dejó tocar nada hasta que hubo medido el tamaño y
+el checksum del informe y lo hubo dicho.
+
+Una cosa salió mal, y es la parte que vale la pena leer. El receptor empezó a editar antes de
+haber reconocido la liberación. El emisor lo detectó, lo pausó, reescribió el informe, y lo
+liberó de nuevo como corresponde. Catorce minutos y cuarenta y un segundos después de que
+empezara el relevo, el segundo agente estaba trabajando y el primero se despidió con un 1 %
+restante. Cada commit de antes del relevo está intacto; el segundo agente continuó desde la
+primera tarea sin marcar, no desde el principio. Yo estuve dormido todo el tiempo.
+
+La noche entera está en [docs/evidence/rotation-2026-09-18/](../evidence/rotation-2026-09-18/):
+cada lectura de cuota con cinco minutos de diferencia, las dos versiones del informe, los
+recibos de preparación y de liberación, y el resumen de commits. Los nombres de host, las
+direcciones y los ids de sesión están redactados; nada más se toca.
+
 ## What runs today
 
 *Última actualización 2026-09-20.*
@@ -195,7 +219,7 @@ uno, con las respuestas o los registros de recuperación en `evals/`:
 
 Estamos trabajando con un puñado de personas que ya usan dos o más agentes en paralelo
 y mueven resultados entre ellos a mano. Si esa eres tú, abre un
-[design partner issue](../../.github/ISSUE_TEMPLATE/) y di qué estás usando.
+[design partner issue](https://github.com/sno-ai/sno-station/issues/new?template=design-partner.yml) y di qué estás usando.
 
 ## Security
 
