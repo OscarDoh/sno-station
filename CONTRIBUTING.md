@@ -17,7 +17,7 @@ Thanks for helping build Sno Station in public. This page is short on purpose.
 3. Run the checks that apply to what you touched:
 
    ```bash
-   npm install
+   npm ci
    npm run build --workspaces
    npm run typecheck
    npm run lint
