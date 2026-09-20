@@ -114,6 +114,31 @@ Wir nennen das Paar ein Duo: das kleinste Team. Wir sagen nie, welcher der sorgf
 welcher der schnelle ist. Das wechselt von Monat zu Monat und von Aufgabe zu Aufgabe. Der
 Punkt ist, dass sie sich unterscheiden.
 
+## "Ich bin ins Bett gegangen. Es hat die Schicht gewechselt."
+
+*So sieht das auf unserer eigenen Maschine aus, 2026-09-18.*
+
+![Die Kontingent-Überwachung liest alle fünf Minuten den Stand bis zur Schwelle ab, und die Übergabe löst bei 2 % aus](../evidence/rotation-quota-watch-2026-09-18.png)
+
+Einer unserer Agenten war bei Aufgabe einundzwanzig von siebenundzwanzig eines Builds, als
+sein Wochenkontingent 2 % erreichte. Er blieb dort nicht stehen und wartete auf sein Ende. Er
+schrieb ein Übergabe-Briefing: was erledigt war, was halb erledigt war, der genaue Commit, an
+dem weiterzumachen ist. Dann weckte er einen Agenten aus der anderen Harness und ließ ihn
+nichts anfassen, bis dieser Größe und Prüfsumme des Briefings gemessen und das bestätigt
+hatte.
+
+Eine Sache ging schief, und genau die ist lesenswert. Der Empfänger begann zu editieren,
+bevor er die Freigabe bestätigt hatte. Der Sender bemerkte es, hielt ihn an, schrieb das
+Briefing neu und gab ordentlich erneut frei. Vierzehn Minuten und einundvierzig Sekunden nach
+Beginn der Übergabe arbeitete der zweite Agent, und der erste meldete sich mit 1 % Rest ab.
+Jeder Commit von vor der Übergabe ist unversehrt; der zweite Agent machte bei der ersten
+offenen Aufgabe weiter, nicht von vorn. Ich habe das alles verschlafen.
+
+Die ganze Nacht liegt in [docs/evidence/rotation-2026-09-18/](../evidence/rotation-2026-09-18/):
+jede Kontingent-Ablesung im Abstand von fünf Minuten, beide Fassungen des Briefings, die
+Bereitschafts- und Freigabequittungen und die Commit-Zusammenfassung. Hostnamen, Adressen und
+Session-IDs sind geschwärzt; sonst ist nichts angerührt.
+
 ## What runs today
 
 *Zuletzt aktualisiert am 2026-09-20.*
@@ -202,7 +227,7 @@ zugrunde liegenden Antworten oder Abrufdaten in `evals/`:
 
 Wir arbeiten mit einer Handvoll Leuten zusammen, die bereits zwei oder mehr Agenten
 nebeneinander betreiben und Ergebnisse von Hand zwischen ihnen verschieben. Wenn das auf
-Sie zutrifft, öffnen Sie ein [design partner issue](../../.github/ISSUE_TEMPLATE/) und
+Sie zutrifft, öffnen Sie ein [design partner issue](https://github.com/sno-ai/sno-station/issues/new?template=design-partner.yml) und
 schreiben Sie, was Sie einsetzen.
 
 ## Security

@@ -1,0 +1,2 @@
+ROTATE: hand off to claude now. Your Codex weekly quota is at 2% remaining and will not last the task. Stop editing. Run the handoff skill ($handoff): write the brief, spawn a claude receiver in this same checkout, verify its readiness, then release it. Before any receiver write, the receiver must print HANDOFF_RELEASED <nonce> on its own line. Report the receiver seat address and the brief path here, then unregister and stop.
+2026-09-18T08:34:42Z

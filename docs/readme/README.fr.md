@@ -107,6 +107,30 @@ n'est jamais suffisant.
 Nous appelons la paire un Duo : la plus petite équipe. Nous ne disons jamais lequel est le prudent
 et lequel est le rapide. Cela change selon le mois et selon la tâche. L'important, c'est qu'ils diffèrent.
 
+## « Je suis allé me coucher. La relève s'est faite. »
+
+*À quoi cela ressemble sur notre propre machine, le 2026-09-18.*
+
+![La veille de quota descendant jusqu'au seuil toutes les cinq minutes, et la passation déclenchée à 2 %](../evidence/rotation-quota-watch-2026-09-18.png)
+
+L'un de nos agents en était à vingt-et-une tâches sur un build de vingt-sept quand son quota
+hebdomadaire est tombé à 2 %. Il ne s'est pas arrêté là pour attendre de mourir. Il a rédigé une
+note de passation : ce qui était fait, ce qui était à moitié fait, le commit exact d'où reprendre.
+Puis il a réveillé un agent de l'autre harness et ne l'a laissé toucher à rien tant qu'il n'avait
+pas mesuré la taille et la somme de contrôle de la note, et ne l'avait pas dit.
+
+Une chose a mal tourné, et c'est la partie qui vaut la lecture. Le receveur a commencé à éditer
+avant d'avoir accusé réception de la libération. L'expéditeur l'a repéré, l'a mis en pause, a
+réécrit la note, et a libéré de nouveau, proprement. Quatorze minutes et quarante-et-une secondes
+après le début de la passation, le second agent travaillait et le premier a signé sa sortie avec
+1 % restant. Chaque commit d'avant la passation est intact ; le second agent a repris à la première
+tâche non cochée, pas depuis le début. J'ai dormi pendant tout ce temps.
+
+La nuit entière est dans [docs/evidence/rotation-2026-09-18/](../evidence/rotation-2026-09-18/) :
+chaque relevé de quota à cinq minutes d'intervalle, les deux versions de la note, les reçus de
+disponibilité et de libération, et le résumé des commits. Noms d'hôtes, adresses et identifiants
+de session sont caviardés ; rien d'autre n'est touché.
+
 ## Ce qui fonctionne aujourd'hui
 
 *Dernière mise à jour le 2026-09-20.*
@@ -191,7 +215,7 @@ avec les réponses ou les enregistrements de récupération dans `evals/` :
 
 Nous travaillons avec une poignée de personnes qui font déjà tourner deux agents ou plus côte
 à côte et déplacent les résultats entre eux à la main. Si c'est votre cas, ouvrez un
-[design partner issue](../../.github/ISSUE_TEMPLATE/) et dites ce que vous utilisez.
+[design partner issue](https://github.com/sno-ai/sno-station/issues/new?template=design-partner.yml) et dites ce que vous utilisez.
 
 ## Sécurité
 

@@ -1,0 +1,8 @@
+[acpx] session <redacted> · <repo> · agent connected
+REACH-RECEIPT-1789721258446765812-3124385-3454Refreshed brief verified: 22418 bytes, digest matches, final standalone marker present; recovery section read and accepted as superseding. Snapshot HEAD matches the checkout.
+
+READY_RETRY_98d3
+measured digest: `cfb06405032c5a5827ce0c6fdddca5a0cd890816ec1c5380beec3e753743b3d9`
+checkout: `<repo>` @ `92348bf46f19d20ca72a152461792386a801f873`
+
+Remaining PAUSED — no task edits. Awaiting the separate fresh release, then the continuation wake.

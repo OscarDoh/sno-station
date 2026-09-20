@@ -1,0 +1,11 @@
+[acpx] session <redacted> · <repo> · agent connected
+REACH-RECEIPT-1789720695543254795-3090798-19757All three checks match. Reading the brief in full.Brief 已读完并核实通过；未做任何任务写入。
+
+READY_MEMCLAUDE_c54881
+measured digest: `ea5af28673a4b8bf83b781116dc8c631abaf0d25267647c7674035699304cbac` (18778 bytes, EOF marker present)
+intended checkout: `<repo>` @ `92348bf46f19d20ca72a152461792386a801f873` (branch `dev`, matches snapshot head.txt / checkout.txt)
+inbox: empty — no original work card, consistent with the brief.
+
+已读取的权限与范围：owner 直接任务（`the workflow skill` on `the client-code-prd.md`），每任务完成即勾选 tasks.md 并 commit，禁止 push；复用 `apps/mem-codex/src`，禁写 `apps/mem-codex` 与 `packages/sno-station-mem`；不碰 host `~/.claude`/`~/.codex`/OpenClaw；Mac 为最后一步且须 owner 先指名路径。任务状态：21/27 勾选；待办 3.2/3.3（QCG-6 指标决定悬而未决，不得视默认或超时为授权）、8.1（五项测试评审修复，不再复审）、evidence 格式修复、8.2、6.1、8.3。
+
+等待 sender 的显式 release（须包含上述 digest 与新 nonce）。收到后我会复核 digest 与 no-card 状态，先单独一行输出 `HANDOFF_RELEASED <nonce>`，再开始任务写入；最终结果直接报 owner，不回报 sender。

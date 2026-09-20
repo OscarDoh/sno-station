@@ -102,6 +102,30 @@ that meant the work was bad. It means one reviewer from one harness is never eno
 We call the pair a Duo: the smallest squad. We never say which one is the careful one and
 which one is the fast one. It flips by month and by job. The point is that they differ.
 
+## "I went to bed. It changed shifts."
+
+*What this looks like on our own machine, 2026-09-18.*
+
+![The quota watch reading down to the threshold every five minutes, and the handover firing at 2%](docs/evidence/rotation-quota-watch-2026-09-18.png)
+
+One of our agents was twenty-one tasks into a twenty-seven-task build when its weekly quota
+reached 2%. It did not stop there and wait to die. It wrote a handover brief: what was done,
+what was half-done, the exact commit to continue from. Then it woke an agent from the other
+harness and would not let it touch anything until it had measured the brief's size and
+checksum and said so.
+
+One thing went wrong, and it is the part worth reading. The receiver started editing before
+it had acknowledged the release. The sender caught it, paused it, rewrote the brief, and
+released again properly. Fourteen minutes and forty-one seconds after the handover began,
+the second agent was working and the first one signed off with 1% left. Every commit from
+before the handover is intact; the second agent continued from the first unchecked task, not
+from the beginning. I was asleep for all of it.
+
+The whole night is in [docs/evidence/rotation-2026-09-18/](docs/evidence/rotation-2026-09-18/):
+every quota reading five minutes apart, both versions of the brief, the readiness and release
+receipts, and the commit summary. Host names, addresses and session ids are redacted; nothing
+else is touched.
+
 ## What runs today
 
 *Last updated 2026-09-20.*
@@ -184,7 +208,7 @@ answers or retrieval records in `evals/`:
 
 We are working with a handful of people who already run two or more agents side by side
 and move results between them by hand. If that is you, open a
-[design partner issue](.github/ISSUE_TEMPLATE/) and say what you are running.
+[design partner issue](https://github.com/sno-ai/sno-station/issues/new?template=design-partner.yml) and say what you are running.
 
 ## Security
 
