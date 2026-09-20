@@ -1,6 +1,5 @@
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "@babel/parser";
@@ -97,10 +96,10 @@ export function collectLogSources(root: string): SourceInput[] {
 	const workspace = existsSync(resolve(root, "packages/utils/src"));
 	const roots = (workspace ? ["apps", "packages"] : ["src", "scripts"]).filter(path => existsSync(resolve(root, path)));
 	if (!roots.length) throw new Error("No utility source available for diagnostic catalog");
-	const paths = execFileSync("rg", ["--files", "--hidden", ...roots,
-		"-g", "*.ts", "-g", "*.tsx", "-g", "*.mts", "-g", "*.cts", "-g", "*.js", "-g", "*.jsx", "-g", "*.mjs", "-g", "*.cjs",
-		"-g", "!**/*.d.ts", "-g", "!**/node_modules/**", "-g", "!**/dist*/**", "-g", "!**/.cache/**"],
-		{ cwd: root, encoding: "utf8" }).trim().split("\n").filter(path => path && path !== GENERATED_PATH);
+	const paths = globSync(roots.map(path => `${path}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`), {
+		cwd: root,
+		exclude: ["**/*.d.ts", "**/node_modules/**", "**/dist*/**", "**/.cache/**"],
+	}).filter(path => path !== GENERATED_PATH);
 	const consumers = ADMITTED_CONSUMERS.filter(path => existsSync(resolve(root, path)));
 	return [...paths, ...consumers].map(path => ({
 		path: workspace ? path : "packages/utils/" + path,
